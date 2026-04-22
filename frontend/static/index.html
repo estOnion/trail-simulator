@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Trail Simulator</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <aside id="panel">
+    <h1>Trail Simulator</h1>
+
+    <section class="pick">
+      <div class="row">
+        <strong>Origin:</strong>
+        <span id="origin-label">click the map</span>
+      </div>
+      <div class="row">
+        <strong>Destinations:</strong>
+      </div>
+      <div id="dest-list"></div>
+      <p class="hint">Drag a pin to move it, or click "add destination" then the map.</p>
+      <div class="pick-btns">
+        <button id="pick-origin" type="button">pick origin</button>
+        <button id="pick-dest"   type="button">add destination</button>
+        <button id="reset-pins"  type="button">reset</button>
+      </div>
+    </section>
+
+    <section class="speed">
+      <label for="speed">Speed: <span id="speed-val">5.0</span> km/h</label>
+      <input id="speed" type="range" min="1" max="20" step="0.5" value="5" />
+    </section>
+
+    <section class="controls">
+      <label class="loop"><input id="loop-toggle" type="checkbox" /> Loop</label>
+      <button id="walk"   type="button" disabled>Walk</button>
+      <button id="pause"  type="button" disabled>Pause</button>
+      <button id="resume" type="button" disabled>Resume</button>
+      <button id="stop"   type="button" disabled>Stop</button>
+    </section>
+
+    <section class="status">
+      <div><strong>State:</strong> <span id="state">idle</span></div>
+      <div><strong>Progress:</strong> <span id="progress">0 / 0 m</span></div>
+      <div><strong>Cooldown:</strong> <span id="cooldown">—</span></div>
+      <div id="error" class="err"></div>
+    </section>
+  </aside>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
