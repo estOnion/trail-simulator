@@ -5,6 +5,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ..geocode import GeocodeError, search as geocode_search
 from ..routing.osrm import RouteError
 from ..session.controller import SessionController
 
@@ -98,6 +99,18 @@ def build_router(controller: SessionController) -> APIRouter:
     async def stop():
         await controller.stop()
         return {"ok": True}
+
+    @r.get("/search")
+    async def search(q: str = "", limit: int = 8):
+        query = q.strip()
+        if not query:
+            return {"results": []}
+        capped = max(1, min(20, limit))
+        try:
+            results = await geocode_search(query, limit=capped)
+        except GeocodeError as e:
+            raise HTTPException(status_code=502, detail=f"geocode: {e}")
+        return {"results": results}
 
     return r
 
