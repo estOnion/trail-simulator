@@ -32,9 +32,45 @@ body.picking #map { cursor: crosshair; }
 #panel button.active { background: #0a7; color: #fff; border-color: #087; }
 #panel button:disabled { opacity: 0.4; cursor: not-allowed; }
 #panel input[type="range"] { width: 100%; }
-.err { color: #b00; font-size: 12px; min-height: 1em; margin-top: 6px; }
+.err { color: #b00; font-size: 12px; min-height: 1em; margin-top: 6px; white-space: pre-wrap; }
+@keyframes pulse-text { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+#state.reconnecting { color: #a60; font-style: italic; animation: pulse-text 1.4s ease-in-out infinite; }
 .controls button { margin-right: 4px; }
 .controls label.loop { display: inline-flex; align-items: center; gap: 4px; margin-right: 8px; font-size: 13px; }
+
+.search { position: relative; }
+.search input[type="search"] {
+  width: 100%;
+  padding: 6px 8px;
+  margin-top: 4px;
+  font: inherit;
+  background: #fff;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+}
+.search input[type="search"]:focus { outline: 2px solid #0a7; outline-offset: -1px; }
+.search-results {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  background: #fff;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: none;
+}
+.search-results.open { display: block; }
+.search-results li {
+  padding: 6px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+  line-height: 1.3;
+}
+.search-results li:last-child { border-bottom: none; }
+.search-results li:hover,
+.search-results li.active { background: #eef8f3; }
 
 #dest-list { margin: 4px 0; }
 #dest-list .dest-row {
@@ -50,4 +86,30 @@ body.picking #map { cursor: crosshair; }
 #dest-list .dest-row button.x:hover { background: #fee; border-color: #c88; color: #b00; }
 #dest-list .empty { color: #999; font-size: 12px; font-style: italic; }
 
+.pill {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #eee;
+  color: #555;
+  border: 1px solid #ddd;
+}
+
 #map { flex: 1; }
+
+.step-companions { display: flex; flex-direction: column; gap: 3px; }
+.step-companion-row {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #eef8f3;
+  color: #087;
+  border: 1px solid #c3e6d4;
+}
+.step-companion-none {
+  background: #eee;
+  color: #999;
+  border-color: #ddd;
+}
