@@ -25,7 +25,8 @@ class LocationClient:
     session — opening them per-tick adds hundreds of ms of jitter.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, udid: str | None = None) -> None:
+        self._udid = udid
         self._provider: Any = None
         self._dvt_cm: Any = None   # DvtProvider context manager
         self._loc_cm: Any = None   # LocationSimulation context manager
@@ -46,7 +47,7 @@ class LocationClient:
             LocationSimulation,
         )
 
-        provider = await _build_service_provider()
+        provider = await _build_service_provider(udid=self._udid)
         dvt_cm = DvtProvider(provider)
         dvt = await dvt_cm.__aenter__()
         loc_cm = LocationSimulation(dvt)
@@ -110,7 +111,11 @@ class LocationClient:
                 except Exception as e:  # noqa: BLE001
                     log.warning("reconnect failed: %s", e)
                     backoff = min(backoff * 2, SETTINGS.reconnect_max_backoff_s)
-            raise DeviceUnavailable("could not reconnect to iPhone")
+            raise DeviceUnavailable(
+                "could not reconnect to iPhone — ensure "
+                "'sudo pymobiledevice3 remote tunneld' is running, "
+                "then click Walk to resume"
+            )
         finally:
             self._reconnecting = False
 
@@ -118,14 +123,18 @@ class LocationClient:
 # ---------------------------------------------------------------------- #
 # Service provider resolution
 # ---------------------------------------------------------------------- #
-async def _build_service_provider() -> Any:
+async def _build_service_provider(udid: str | None = None) -> Any:
     """Get an RSD handle from tunneld. DVT on iOS 17+ requires tunneld —
-    plain lockdown returns InvalidService, so we don't fall back."""
+    plain lockdown returns InvalidService, so we don't fall back.
+
+    If `udid` is set, filter the tunneld device list to that device; otherwise,
+    require exactly one device to avoid silently injecting into the wrong phone.
+    """
     from pymobiledevice3.tunneld.api import (
         TUNNELD_DEFAULT_ADDRESS,
         get_tunneld_devices,
     )
-    from .tunneld import tunneld_reachable, start_instructions
+    from .tunneld import rsd_udid, start_instructions, tunneld_reachable
 
     if not tunneld_reachable():
         raise DeviceUnavailable(start_instructions())
@@ -135,9 +144,24 @@ async def _build_service_provider() -> Any:
     except Exception as e:
         raise DeviceUnavailable(f"tunneld query failed: {e}") from e
 
+    if udid is not None:
+        rsds = [r for r in rsds if rsd_udid(r) == udid]
+        if not rsds:
+            raise DeviceUnavailable(
+                f"Device with udid={udid} is not reachable via tunneld."
+            )
+
     if not rsds:
         raise DeviceUnavailable(
             "tunneld is running but reports no devices. "
-            "Check the USB cable and ensure the iPhone is trusted."
+            "Plug in via USB and tap Trust, or ensure 'wifi-connections on' was enabled "
+            "and the iPhone is on the same network."
+        )
+
+    if len(rsds) > 1:
+        udids = ", ".join(rsd_udid(r) or "<?>" for r in rsds)
+        raise DeviceUnavailable(
+            f"Multiple devices reachable via tunneld: [{udids}]. "
+            "Pass --udid to pick one."
         )
     return rsds[0]
