@@ -16,9 +16,11 @@ from fastapi.staticfiles import StaticFiles
 
 from .api.rest import build_router
 from .api.ws import build_ws_router
+from .api.ws_steps import build_ws_steps_router
 from .config import FRONTEND_DIR, SETTINGS
 from .device.developer_mode import preflight
 from .device.location import LocationClient
+from .device.multi_location import MultiLocationClient
 from .device.tunneld import start_instructions, tunneld_reachable
 from .session.controller import SessionController
 from .session.store import Store
@@ -55,6 +57,7 @@ def build_app(controller: SessionController) -> FastAPI:
     app = FastAPI(title="Trail Simulator", lifespan=lifespan)
     app.include_router(build_router(controller), prefix="/api")
     app.include_router(build_ws_router(controller))
+    app.include_router(build_ws_steps_router())
 
     if FRONTEND_DIR.exists():
         app.mount(
@@ -89,6 +92,13 @@ def main() -> int:
         action="store_true",
         help="Skip preflight + use a stub device (UI preview only; no GPS injection).",
     )
+    parser.add_argument(
+        "--udid",
+        action="append",
+        default=None,
+        help="Target a specific iPhone by UDID. Repeat to mirror to multiple devices "
+             "(e.g., --udid AAA --udid BBB). With no --udid, exactly one device must be connected.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -99,12 +109,25 @@ def main() -> int:
     if args.host != "127.0.0.1":
         log.warning("binding to %s — reachable from LAN (no auth)", args.host)
 
+    requested_udids: list[str] = list(args.udid) if args.udid else []
+    resolved_udids: list[str | None] = []
+
     if not args.dev_no_device:
-        pf = preflight()
-        print(f"[preflight] {pf.message}")
-        if not pf.ok:
-            print("[preflight] FAILED — fix above, or run with --dev-no-device to preview the UI.", file=sys.stderr)
-            return 2
+        if not requested_udids:
+            pf = preflight(udid=None)
+            print(f"[preflight] {pf.message}")
+            if not pf.ok:
+                print("[preflight] FAILED — fix above, or run with --dev-no-device to preview the UI.", file=sys.stderr)
+                return 2
+            resolved_udids = [pf.udid]
+        else:
+            for u in requested_udids:
+                pf = preflight(udid=u)
+                print(f"[preflight] {pf.message}")
+                if not pf.ok:
+                    print("[preflight] FAILED — fix above, or run with --dev-no-device to preview the UI.", file=sys.stderr)
+                    return 2
+            resolved_udids = list(requested_udids)
 
         if not tunneld_reachable():
             print("[tunneld] NOT RUNNING", file=sys.stderr)
@@ -113,10 +136,19 @@ def main() -> int:
         print("[tunneld] reachable at 127.0.0.1:49151")
     else:
         print("[preflight] SKIPPED (--dev-no-device) — GPS injection is stubbed.")
+        resolved_udids = [requested_udids[0] if requested_udids else None]
 
     store = Store()
-    device: LocationClient = _StubLocation() if args.dev_no_device else LocationClient()
+    if args.dev_no_device:
+        device = _StubLocation(udid=resolved_udids[0])
+    elif len(resolved_udids) > 1:
+        device = MultiLocationClient([u for u in resolved_udids if u is not None])
+        print(f"[devices] mirror mode active for {len(resolved_udids)} devices")
+    else:
+        device = LocationClient(udid=resolved_udids[0])
     controller = SessionController(device, store)
+    from .api.ws_steps import broadcaster as _step_broadcaster
+    _step_broadcaster.set_change_callback(controller._broadcast)
     app = build_app(controller)
 
     url = f"http://{args.host}:{args.port}/"
