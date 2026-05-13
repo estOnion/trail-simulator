@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Awaitable, Callable
 
@@ -25,6 +27,7 @@ class SessionState(str, Enum):
     running = "running"
     paused = "paused"
     stopping = "stopping"
+    reconnecting = "reconnecting"
     error = "error"
 
 
@@ -41,6 +44,8 @@ class StatusSnapshot:
     total_m: float
     last_error: str | None
     cooldown_remaining_s: float
+    steps_sent: int
+    step_companions: list[dict]
 
 
 # Listeners get snapshots pushed to them (WebSocket fan-out lives in api/ws.py).
@@ -64,6 +69,12 @@ class SessionController:
         self._total_m: float = 0.0
         self._last_error: str | None = None
         self._listeners: list[Listener] = []
+        self._steps_sent: int = 0
+        self._step_remainder: float = 0.0
+
+        # Saved params for auto-resume after DeviceUnavailable.
+        self._last_start_params: dict | None = None
+        self._reconnect_task: asyncio.Task | None = None
 
         # Leg queue — the in-flight leg's target is _current_leg_target;
         # upcoming legs live in _destinations. _full_destinations + _origin
@@ -114,6 +125,7 @@ class SessionController:
                 self._current_leg_target[0], self._current_leg_target[1],
             )
             cd = decision.required_wait_s
+        from ..api.ws_steps import broadcaster as _step_broadcaster
         return StatusSnapshot(
             state=self._state,
             session_id=self._session_id,
@@ -126,6 +138,8 @@ class SessionController:
             total_m=self._total_m,
             last_error=self._last_error,
             cooldown_remaining_s=cd,
+            steps_sent=self._steps_sent,
+            step_companions=_step_broadcaster.snapshot(),
         )
 
     async def start(
@@ -137,10 +151,14 @@ class SessionController:
         loop: bool = False,
         skip_cooldown: bool = False,
     ) -> CooldownDecision:
-        if self._state in (SessionState.running, SessionState.starting):
+        if self._state in (SessionState.running, SessionState.starting, SessionState.reconnecting):
             raise RuntimeError("session already active")
         if not destinations:
             raise RuntimeError("destinations must not be empty")
+
+        # Cancel any pending auto-reconnect so it doesn't start a duplicate session.
+        if self._reconnect_task and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
 
         speed_kmh = max(0.1, min(speed_kmh, SETTINGS.max_speed_kmh))
 
@@ -174,6 +192,8 @@ class SessionController:
         self._speed_kmh = speed_kmh
         self._current = (start_lat, start_lon)
         self._progress_m = 0.0
+        self._steps_sent = 0
+        self._step_remainder = 0.0
         self._stop_flag = False
         self._pause_event.set()
         # SQLite audit row — end point = last destination of the journey.
@@ -182,6 +202,13 @@ class SessionController:
             start_lat, start_lon, final[0], final[1], speed_kmh
         )
 
+        self._last_start_params = {
+            "start_lat": start_lat,
+            "start_lon": start_lon,
+            "destinations": list(destinations),
+            "speed_kmh": speed_kmh,
+            "loop": loop,
+        }
         self._task = asyncio.create_task(self._run(start_lat, start_lon, speed_kmh))
         return decision
 
@@ -200,10 +227,13 @@ class SessionController:
     async def stop(self) -> None:
         self._stop_flag = True
         self._pause_event.set()
-        if self._task:
+        if self._reconnect_task and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
+        if self._task and not self._task.done():
+            self._task.cancel()
             try:
                 await self._task
-            except Exception:
+            except (Exception, asyncio.CancelledError):
                 pass
 
     async def update_destinations(
@@ -231,6 +261,10 @@ class SessionController:
             if new_target == self._current_leg_target:
                 # Active leg unchanged — just mutate the upcoming queue.
                 self._destinations = list(destinations[1:])
+                if self._last_start_params is not None:
+                    self._last_start_params["destinations"] = list(destinations)
+                    if loop is not None:
+                        self._last_start_params["loop"] = self._loop
                 log.info(
                     "destinations updated (%d upcoming, loop=%s)",
                     len(self._destinations), self._loop,
@@ -269,6 +303,10 @@ class SessionController:
                 new_target[0], new_target[1],
                 len(self._waypoints), len(self._destinations), self._loop,
             )
+            if self._last_start_params is not None:
+                self._last_start_params["destinations"] = list(destinations)
+                if loop is not None:
+                    self._last_start_params["loop"] = self._loop
         await self._broadcast()
 
     async def change_speed(self, speed_kmh: float) -> None:
@@ -315,6 +353,8 @@ class SessionController:
             self._total_m = _polyline_length_m(trimmed)
             self._progress_m = 0.0
             log.info("speed change to %.1f km/h mid-leg", speed_kmh)
+            if self._last_start_params is not None:
+                self._last_start_params["speed_kmh"] = speed_kmh
         await self._broadcast()
 
     # ------------------------------------------------------------------ #
@@ -388,13 +428,12 @@ class SessionController:
                     break
                 self._current_leg_target = nxt
 
-            self._state = (
-                SessionState.idle if not self._last_error else SessionState.error
-            )
+        except asyncio.CancelledError:
+            pass  # stop() requested; finally block will clean up
         except RouteError as e:
             self._last_error = f"route: {e}"
             self._state = SessionState.error
-        except DeviceUnavailable as e:
+        except (DeviceUnavailable, TimeoutError) as e:
             self._last_error = f"device: {e}"
             self._state = SessionState.error
         except Exception as e:  # noqa: BLE001
@@ -406,11 +445,70 @@ class SessionController:
                 await self._device.clear()
             except Exception:
                 pass
+            # Ensure a clean state — covers CancelledError path where state wasn't set.
+            if self._state not in (SessionState.idle, SessionState.error):
+                self._state = SessionState.idle
             if self._session_id is not None:
                 self._store.session_end(
                     self._session_id,
                     "completed" if self._state == SessionState.idle else self._state.value,
                 )
+            await self._broadcast()
+
+        # If the session ended due to a device error and was not user-stopped,
+        # kick off a background task to auto-resume once tunneld comes back.
+        if (
+            self._state == SessionState.error
+            and self._last_error
+            and self._last_error.startswith("device:")
+            and not self._stop_flag
+            and self._last_start_params is not None
+        ):
+            self._reconnect_task = asyncio.create_task(self._auto_resume())
+
+    async def _auto_resume(self) -> None:
+        """Poll tunneld until reachable, then restart the session from the last fix."""
+        from ..device.tunneld import tunneld_reachable
+
+        self._state = SessionState.reconnecting
+        await self._broadcast()
+
+        try:
+            while True:
+                await asyncio.sleep(5.0)
+                if tunneld_reachable():
+                    break
+        except asyncio.CancelledError:
+            self._state = SessionState.idle
+            await self._broadcast()
+            return
+
+        # Tunneld is back — restart from the last recorded position if available.
+        params = self._last_start_params
+        if params is None:
+            self._state = SessionState.idle
+            await self._broadcast()
+            return
+
+        last = self._store.get_last_fix()
+        resume_lat = last[0] if last else params["start_lat"]
+        resume_lon = last[1] if last else params["start_lon"]
+
+        self._state = SessionState.idle  # allow start() to proceed
+        self._reconnect_task = None  # clear so stop() won't cancel mid-start
+        try:
+            await self.start(
+                resume_lat,
+                resume_lon,
+                params["destinations"],
+                params["speed_kmh"],
+                loop=params["loop"],
+                skip_cooldown=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("auto-resume failed: %s", e)
+            self._state = SessionState.error
+            self._last_error = f"auto-resume failed: {e}"
             await self._broadcast()
 
     async def _tick_leg(
@@ -458,7 +556,7 @@ class SessionController:
 
             try:
                 await self._device.set(wp.lat, wp.lon)
-            except DeviceUnavailable as e:
+            except (DeviceUnavailable, TimeoutError) as e:
                 self._last_error = f"device: {e}"
                 self._state = SessionState.error
                 return (prev_lat, prev_lon)
@@ -466,10 +564,27 @@ class SessionController:
             self._current = (wp.lat, wp.lon)
             self._progress_m += jump_m
             self._store.set_last_fix(wp.lat, wp.lon)
+            if SETTINGS.step_companion_enabled:
+                await self._emit_steps(jump_m)
             prev_lat, prev_lon = wp.lat, wp.lon
             if self._wp_idx == idx:
                 self._wp_idx = idx + 1
             await self._broadcast()
+
+    async def _emit_steps(self, delta_m: float) -> None:
+        from ..api.ws_steps import broadcaster as _step_broadcaster
+        if not _step_broadcaster.has_clients():
+            return
+        total = delta_m / SETTINGS.stride_length_m + self._step_remainder
+        n = math.floor(total)
+        self._step_remainder = total - n
+        if n <= 0:
+            return
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        n_clients = len(_step_broadcaster._clients)
+        await _step_broadcaster.send({"type": "steps", "steps": n, "distance_m": delta_m, "ts": ts})
+        self._steps_sent += n
+        log.info("steps emitted: %d (delta %.2fm) -> %d companion(s)", n, delta_m, n_clients)
 
     def _pop_next_leg_target(self) -> tuple[float, float] | None:
         if self._destinations:

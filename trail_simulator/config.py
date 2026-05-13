@@ -23,10 +23,16 @@ class Settings:
 
     osrm_base: str = "https://router.project-osrm.org"
 
+    nominatim_base: str = "https://nominatim.openstreetmap.org"
+    user_agent: str = "trail-simulator/0.1 (https://github.com/estOnion/trail-simulator)"
+
     tunneld_cmd: tuple[str, ...] = ("pymobiledevice3", "remote", "tunneld")
     tunneld_startup_s: float = 3.0
 
     reconnect_max_backoff_s: float = 30.0
+
+    step_companion_enabled: bool = True
+    stride_length_m: float = 0.7
 
 
 SETTINGS = Settings()
