@@ -244,3 +244,6 @@ Temporary Items
 # Editor / tool local state
 .claude/
 CLAUDE.md
+
+# Research records
+docs/
