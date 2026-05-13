@@ -143,7 +143,7 @@
 
   function isActive() {
     const s = el('state').textContent;
-    return s === 'running' || s === 'starting' || s === 'paused';
+    return s === 'running' || s === 'starting' || s === 'paused' || s === 'reconnecting';
   }
 
   map.on('click', (e) => {
@@ -161,6 +161,89 @@
 
   el('pick-origin').onclick = () => setPickMode(pickMode === 'origin' ? null : 'origin');
   el('pick-dest').onclick   = () => setPickMode(pickMode === 'dest'   ? null : 'dest');
+
+  // ---- POI search bar ------------------------------------------------------
+  const searchInput = el('search-input');
+  const searchResults = el('search-results');
+  let searchDebounce = null;
+  let searchAbort = null;
+
+  function hideSearchResults() {
+    searchResults.innerHTML = '';
+    searchResults.classList.remove('open');
+  }
+
+  function renderSearchResults(results) {
+    searchResults.innerHTML = '';
+    if (!results || results.length === 0) {
+      hideSearchResults();
+      return;
+    }
+    results.forEach((res) => {
+      const li = document.createElement('li');
+      li.textContent = res.display_name;
+      li.title = res.display_name;
+      li.onclick = (ev) => { ev.stopPropagation(); pickSearchResult(res); };
+      searchResults.appendChild(li);
+    });
+    searchResults.classList.add('open');
+  }
+
+  function pickSearchResult(res) {
+    const latlng = L.latLng(res.lat, res.lon);
+    if (pickMode === 'origin') {
+      if (isActive()) {
+        el('error').textContent = 'cannot re-pick origin during an active session';
+        return;
+      }
+      placeOrigin(latlng);
+      setPickMode(destinations.length === 0 ? 'dest' : null);
+    } else {
+      addDest(latlng);
+      if (isActive()) onDestChanged();
+    }
+    map.setView(latlng, 16);
+    searchInput.value = '';
+    hideSearchResults();
+  }
+
+  async function runSearch(q) {
+    if (searchAbort) searchAbort.abort();
+    searchAbort = new AbortController();
+    try {
+      const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+        signal: searchAbort.signal,
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        el('error').textContent = typeof j.detail === 'string'
+          ? j.detail : `search error: ${r.status}`;
+        hideSearchResults();
+        return;
+      }
+      const j = await r.json();
+      renderSearchResults(j.results || []);
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      el('error').textContent = `search error: ${e.message || e}`;
+      hideSearchResults();
+    }
+  }
+
+  searchInput.oninput = () => {
+    const q = searchInput.value.trim();
+    if (searchDebounce) clearTimeout(searchDebounce);
+    if (q.length < 3) { hideSearchResults(); return; }
+    searchDebounce = setTimeout(() => runSearch(q), 250);
+  };
+
+  searchInput.onkeydown = (e) => {
+    if (e.key === 'Escape') { searchInput.value = ''; hideSearchResults(); }
+  };
+
+  document.addEventListener('click', (ev) => {
+    if (!ev.target.closest('.search')) hideSearchResults();
+  });
 
   el('reset-pins').onclick = () => {
     if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
@@ -254,18 +337,42 @@
 
   function renderSnapshot(s) {
     el('state').textContent = s.state;
+    el('state').className = s.state;
     el('progress').textContent = `${Math.round(s.progress_m)} / ${Math.round(s.total_m)} m`;
+    const companions = s.step_companions || [];
+    const container = el('step-companions');
+    if (companions.length === 0) {
+      container.innerHTML = '<span class="step-companion-row step-companion-none">no step companions connected</span>';
+    } else {
+      const now = Date.now();
+      container.innerHTML = companions.map(c => {
+        const hbMs = now - new Date(c.last_heartbeat_iso).getTime();
+        const hbS = Math.round(hbMs / 1000);
+        const ack = c.total_acked.toLocaleString();
+        return `<span class="step-companion-row">${c.label} · ack ${ack} · hb ${hbS}s ago</span>`;
+      }).join('');
+    }
     el('cooldown').textContent = s.cooldown_remaining_s > 0
       ? `${Math.ceil(s.cooldown_remaining_s)}s` : '—';
-    el('error').textContent = s.last_error || '';
+
+    const deviceError = s.last_error && s.last_error.startsWith('device:');
+    if (s.state === 'reconnecting') {
+      el('error').textContent = 'Connection lost — reconnecting automatically…';
+    } else if (s.state === 'error' && deviceError) {
+      el('error').textContent = (s.last_error || '') +
+        '\n\nEnsure \'sudo pymobiledevice3 remote tunneld\' is running, then click Walk to resume.';
+    } else {
+      el('error').textContent = s.last_error || '';
+    }
 
     const running = s.state === 'running';
     const paused  = s.state === 'paused';
-    const active  = running || paused || s.state === 'starting';
+    const reconnecting = s.state === 'reconnecting';
+    const active  = running || paused || s.state === 'starting' || reconnecting;
     el('walk').disabled   = active || !(originMarker && destinations.length > 0);
     el('pause').disabled  = !running;
     el('resume').disabled = !paused;
-    el('stop').disabled   = !active && s.state !== 'error';
+    el('stop').disabled   = !active && s.state !== 'error' && s.state !== 'reconnecting';
 
     setMarkerInteractivity(active);
 

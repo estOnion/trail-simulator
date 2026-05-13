@@ -11,6 +11,12 @@
   <aside id="panel">
     <h1>Trail Simulator</h1>
 
+    <section class="search">
+      <label for="search-input"><strong>Search:</strong></label>
+      <input id="search-input" type="search" placeholder="place, address, POI…" autocomplete="off" />
+      <ul id="search-results" class="search-results" role="listbox"></ul>
+    </section>
+
     <section class="pick">
       <div class="row">
         <strong>Origin:</strong>
@@ -45,6 +51,7 @@
       <div><strong>State:</strong> <span id="state">idle</span></div>
       <div><strong>Progress:</strong> <span id="progress">0 / 0 m</span></div>
       <div><strong>Cooldown:</strong> <span id="cooldown">—</span></div>
+      <div id="step-companions" class="step-companions"></div>
       <div id="error" class="err"></div>
     </section>
   </aside>
