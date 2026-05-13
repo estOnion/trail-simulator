@@ -286,7 +286,79 @@
     });
   }
 
-  el('walk').onclick = async () => {
+  // Layer 2: single-flight guard so rapid clicks during the in-flight
+  // window (Walk → server ack → next WS broadcast) can't generate
+  // racing /api/session requests. After the action finishes we
+  // explicitly re-sync from /api/status — some error paths (e.g.
+  // validation 409) don't trigger a broadcast and would otherwise
+  // leave the buttons stuck disabled.
+  let lifecycleBusy = false;
+  async function runLifecycle(fn) {
+    if (lifecycleBusy) return;
+    lifecycleBusy = true;
+    el('walk').disabled = true;
+    el('stop').disabled = true;
+    try { await fn(); }
+    finally {
+      lifecycleBusy = false;
+      try {
+        const r = await fetch('/api/status');
+        if (r.ok) renderSnapshot(await r.json());
+      } catch (_) { /* WS will eventually catch up */ }
+    }
+  }
+
+  // Layer 3: poll /api/status until state matches or timeout — used for
+  // 409 recovery (we triggered a stop, now wait for it to settle).
+  async function waitForState(target, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch('/api/status');
+        if (r.ok) {
+          const s = await r.json();
+          if (s.state === target) return true;
+        }
+      } catch (_) { /* keep polling */ }
+      await new Promise((res) => setTimeout(res, 150));
+    }
+    return false;
+  }
+
+  async function attemptStart(body) {
+    let r = await postSession(body);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      const detail = j.detail;
+
+      // Layer 3: 409 = lifecycle race slipped past Layers 1+2 (e.g. server
+      // restart, manual API caller). Force-stop, wait for idle, retry once.
+      if (r.status === 409) {
+        await fetch('/api/stop', { method: 'POST' });
+        const settled = await waitForState('idle', 3000);
+        if (settled) {
+          r = await postSession(body);
+          if (r.ok) return;
+        }
+        el('error').textContent =
+          'Session was stuck. Tried to reset — please click Walk again.';
+        return;
+      }
+
+      if (detail && typeof detail === 'object' && detail.cooldown) {
+        const msg = `Cooldown would block this jump.\n\n${detail.reason}\n\nSkip cooldown and start anyway?`;
+        if (window.confirm(msg)) {
+          return attemptStart({ ...body, skip_cooldown: true });
+        }
+        el('error').textContent = detail.reason;
+        return;
+      }
+      el('error').textContent = typeof detail === 'string'
+        ? detail : `error: ${r.status}`;
+    }
+  }
+
+  el('walk').onclick = () => runLifecycle(async () => {
     el('error').textContent = '';
     clearCurrent();
     const body = {
@@ -296,32 +368,14 @@
       speed_kmh: Number(speedSlider.value),
       loop: el('loop-toggle').checked,
     };
-    let r = await postSession(body);
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}));
-      const detail = j.detail;
-      if (detail && typeof detail === 'object' && detail.cooldown) {
-        const msg = `Cooldown would block this jump.\n\n${detail.reason}\n\nSkip cooldown and start anyway?`;
-        if (window.confirm(msg)) {
-          r = await postSession({ ...body, skip_cooldown: true });
-          if (!r.ok) {
-            const j2 = await r.json().catch(() => ({}));
-            const d2 = j2.detail;
-            el('error').textContent = typeof d2 === 'string' ? d2 : `error: ${r.status}`;
-          }
-        } else {
-          el('error').textContent = detail.reason;
-        }
-      } else {
-        el('error').textContent = typeof detail === 'string' ? detail : `error: ${r.status}`;
-      }
-      return;
-    }
-  };
+    await attemptStart(body);
+  });
 
   el('pause').onclick  = () => fetch('/api/pause',  { method: 'POST' });
   el('resume').onclick = () => fetch('/api/resume', { method: 'POST' });
-  el('stop').onclick   = () => fetch('/api/stop',   { method: 'POST' });
+  el('stop').onclick   = () => runLifecycle(async () => {
+    await fetch('/api/stop', { method: 'POST' });
+  });
 
   function setMarkerInteractivity(active) {
     // Lock only the origin during an active session — destination markers
@@ -385,11 +439,18 @@
       } else {
         currentMarker.setLatLng(ll);
       }
-      breadcrumbPoints.push(ll);
-      if (!breadcrumb) {
-        breadcrumb = L.polyline(breadcrumbPoints, { color: '#0a7', weight: 3, opacity: 0.6 }).addTo(map);
-      } else {
-        breadcrumb.setLatLngs(breadcrumbPoints);
+      // Only grow the breadcrumb while a session is actually walking.
+      // Snapshots during idle/stopping/error/reconnecting still carry the
+      // iPhone's last-known position; pushing them would splice the old
+      // route's tail onto the new route's head.
+      const inSession = s.state === 'starting' || s.state === 'running' || s.state === 'paused';
+      if (inSession) {
+        breadcrumbPoints.push(ll);
+        if (!breadcrumb) {
+          breadcrumb = L.polyline(breadcrumbPoints, { color: '#0a7', weight: 3, opacity: 0.6 }).addTo(map);
+        } else {
+          breadcrumb.setLatLngs(breadcrumbPoints);
+        }
       }
     }
   }

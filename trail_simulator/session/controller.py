@@ -92,6 +92,11 @@ class SessionController:
         self._current_leg_polyline: list[tuple[float, float]] = []
         self._retarget_lock: asyncio.Lock = asyncio.Lock()
 
+        # Serializes start/stop so the state machine is observed settled
+        # from outside. Without this, a stop in-flight can race a new
+        # start and the caller hits a spurious "session already active".
+        self._lifecycle_lock: asyncio.Lock = asyncio.Lock()
+
     # ------------------------------------------------------------------ #
     # Listener plumbing
     # ------------------------------------------------------------------ #
@@ -151,66 +156,73 @@ class SessionController:
         loop: bool = False,
         skip_cooldown: bool = False,
     ) -> CooldownDecision:
-        if self._state in (SessionState.running, SessionState.starting, SessionState.reconnecting):
-            raise RuntimeError("session already active")
-        if not destinations:
-            raise RuntimeError("destinations must not be empty")
+        async with self._lifecycle_lock:
+            if self._state in (
+                SessionState.running,
+                SessionState.starting,
+                SessionState.stopping,
+                SessionState.paused,
+                SessionState.reconnecting,
+            ):
+                raise RuntimeError("session already active")
+            if not destinations:
+                raise RuntimeError("destinations must not be empty")
 
-        # Cancel any pending auto-reconnect so it doesn't start a duplicate session.
-        if self._reconnect_task and not self._reconnect_task.done():
-            self._reconnect_task.cancel()
+            # Cancel any pending auto-reconnect so it doesn't start a duplicate session.
+            if self._reconnect_task and not self._reconnect_task.done():
+                self._reconnect_task.cancel()
 
-        speed_kmh = max(0.1, min(speed_kmh, SETTINGS.max_speed_kmh))
+            speed_kmh = max(0.1, min(speed_kmh, SETTINGS.max_speed_kmh))
 
-        # Cooldown check — only against the initial teleport (last fix → start).
-        last = self._store.get_last_fix()
-        last_lat = last[0] if last else None
-        last_lon = last[1] if last else None
-        last_ts = last[2] if last else None
-        if skip_cooldown:
-            km = 0.0
-            if last_lat is not None and last_lon is not None:
-                km = distance_m(last_lat, last_lon, start_lat, start_lon) / 1000.0
-            log.warning("cooldown override: %.1fkm jump", km)
-            decision = CooldownDecision(True, 0.0, km, f"cooldown skipped ({km:.1f}km jump)")
-        else:
-            decision = evaluate_cooldown(
-                last_lat, last_lon, last_ts, start_lat, start_lon
+            # Cooldown check — only against the initial teleport (last fix → start).
+            last = self._store.get_last_fix()
+            last_lat = last[0] if last else None
+            last_lon = last[1] if last else None
+            last_ts = last[2] if last else None
+            if skip_cooldown:
+                km = 0.0
+                if last_lat is not None and last_lon is not None:
+                    km = distance_m(last_lat, last_lon, start_lat, start_lon) / 1000.0
+                log.warning("cooldown override: %.1fkm jump", km)
+                decision = CooldownDecision(True, 0.0, km, f"cooldown skipped ({km:.1f}km jump)")
+            else:
+                decision = evaluate_cooldown(
+                    last_lat, last_lon, last_ts, start_lat, start_lon
+                )
+                if not decision.allowed:
+                    self._last_error = decision.reason
+                    await self._broadcast()
+                    return decision
+
+            self._state = SessionState.starting
+            self._last_error = None
+            self._origin = (start_lat, start_lon)
+            self._full_destinations = list(destinations)
+            self._destinations = list(destinations[1:])
+            self._current_leg_target = destinations[0]
+            self._loop = loop
+            self._speed_kmh = speed_kmh
+            self._current = (start_lat, start_lon)
+            self._progress_m = 0.0
+            self._steps_sent = 0
+            self._step_remainder = 0.0
+            self._stop_flag = False
+            self._pause_event.set()
+            # SQLite audit row — end point = last destination of the journey.
+            final = destinations[-1]
+            self._session_id = self._store.session_start(
+                start_lat, start_lon, final[0], final[1], speed_kmh
             )
-            if not decision.allowed:
-                self._last_error = decision.reason
-                await self._broadcast()
-                return decision
 
-        self._state = SessionState.starting
-        self._last_error = None
-        self._origin = (start_lat, start_lon)
-        self._full_destinations = list(destinations)
-        self._destinations = list(destinations[1:])
-        self._current_leg_target = destinations[0]
-        self._loop = loop
-        self._speed_kmh = speed_kmh
-        self._current = (start_lat, start_lon)
-        self._progress_m = 0.0
-        self._steps_sent = 0
-        self._step_remainder = 0.0
-        self._stop_flag = False
-        self._pause_event.set()
-        # SQLite audit row — end point = last destination of the journey.
-        final = destinations[-1]
-        self._session_id = self._store.session_start(
-            start_lat, start_lon, final[0], final[1], speed_kmh
-        )
-
-        self._last_start_params = {
-            "start_lat": start_lat,
-            "start_lon": start_lon,
-            "destinations": list(destinations),
-            "speed_kmh": speed_kmh,
-            "loop": loop,
-        }
-        self._task = asyncio.create_task(self._run(start_lat, start_lon, speed_kmh))
-        return decision
+            self._last_start_params = {
+                "start_lat": start_lat,
+                "start_lon": start_lon,
+                "destinations": list(destinations),
+                "speed_kmh": speed_kmh,
+                "loop": loop,
+            }
+            self._task = asyncio.create_task(self._run(start_lat, start_lon, speed_kmh))
+            return decision
 
     async def pause(self) -> None:
         if self._state == SessionState.running:
@@ -225,16 +237,46 @@ class SessionController:
             await self._broadcast()
 
     async def stop(self) -> None:
-        self._stop_flag = True
-        self._pause_event.set()
-        if self._reconnect_task and not self._reconnect_task.done():
-            self._reconnect_task.cancel()
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except (Exception, asyncio.CancelledError):
-                pass
+        async with self._lifecycle_lock:
+            # Idempotent — stop() when already settled is mostly a no-op,
+            # but a pending auto-resume task from a prior device-error
+            # session still has to be cancelled here.
+            if self._state in (SessionState.idle, SessionState.error):
+                self._stop_flag = True
+                if self._reconnect_task and not self._reconnect_task.done():
+                    self._reconnect_task.cancel()
+                    try:
+                        await self._reconnect_task
+                    except (Exception, asyncio.CancelledError):
+                        pass
+                    self._reconnect_task = None
+                return
+
+            self._state = SessionState.stopping
+            await self._broadcast()
+            self._stop_flag = True
+            self._pause_event.set()
+
+            if self._reconnect_task and not self._reconnect_task.done():
+                self._reconnect_task.cancel()
+                try:
+                    await self._reconnect_task
+                except (Exception, asyncio.CancelledError):
+                    pass
+            self._reconnect_task = None
+
+            if self._task and not self._task.done():
+                self._task.cancel()
+                try:
+                    await self._task
+                except (Exception, asyncio.CancelledError):
+                    pass
+
+            # _run's finally normally lands at idle. Defensive: ensure
+            # callers waiting on /api/stop always see a settled state.
+            if self._state != SessionState.idle:
+                self._state = SessionState.idle
+                await self._broadcast()
 
     async def update_destinations(
         self,
