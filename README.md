@@ -7,9 +7,13 @@ No jailbreak, no sideloading, no modifications to the iPhone — built on the sa
 ## Features
 
 - Click-to-route planning over OpenStreetMap + Leaflet
+- **Address search** — type a place name to jump the map (Nominatim)
 - Realistic pedestrian pacing — ≤ 20 km/h speed cap, ≤ 5 m per-tick jump cap
 - 7-day cooldown table for long-distance repositions, persisted in SQLite across restarts
+- **Multi-device mirror mode** — drive several iPhones in lockstep with `--udid` repeated
+- **Wi-Fi-only operation** — once paired and `wifi-connections on`, no cable needed
 - **Home base station** mode — install once with `sudo`, then drive the iPhone from a Safari bookmark on the phone. No terminal, no cable, no sudo prompts after install.
+- **Step counter** (optional) — sideload the `StepCompanion` iOS app to write step count + walking distance into HealthKit in sync with the simulated route
 - **UI preview** mode for tinkering with the map and controls without an iPhone attached
 - FastAPI + WebSocket backend, vanilla JS + Leaflet frontend
 
@@ -32,6 +36,13 @@ cd "$(dirname "$0")"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+Or with [uv](https://github.com/astral-sh/uv):
+
+```bash
+uv sync
+uv run trail-simulator        # equivalent to `python -m trail_simulator`
 ```
 
 Two run modes are supported:
@@ -67,6 +78,61 @@ python -m trail_simulator --dev-no-device
 ```
 
 This skips all device calls and uses a stub — useful for trying out the map and controls.
+
+### Multi-device mirror mode
+
+Drive two or more iPhones in lockstep — same route, same pace, same GPS tick — by
+repeating `--udid`:
+
+```bash
+python -m trail_simulator \
+  --udid 00008150-001964DA3C02401C \
+  --udid 00008150-001A029A0CE2401C \
+  --host 0.0.0.0 --port 8787
+```
+
+Each device gets its own `LocationSimulation` session under the hood; per-device
+failures are logged but do not abort the shared session — each inner client
+reconnects on the next tick via its own backoff.
+
+### Wi-Fi-only operation (no cable)
+
+Once an iPhone has been paired over USB at least once, you can run cable-free:
+
+```bash
+# one-time, with the cable still attached:
+python3 -m pymobiledevice3 lockdown wifi-connections on
+```
+
+Unplug. As long as the phone is on the same LAN as the Mac and `tunneld` is
+running, preflight will discover it over Bonjour/RemoteXPC. Discovery can take
+several seconds on the first attempt after `tunneld` starts — trail-simulator
+polls for up to ~8 s before reporting "device not found".
+
+### Address search
+
+Type a place name (e.g. `"Yoyogi Park, Tokyo"`) into the search box and hit
+Enter to jump the map. Powered by OSM Nominatim — please respect their fair-use
+policy (no high-volume autosuggest, identifying User-Agent already set).
+
+### Step counter (optional iOS companion app)
+
+For apps that read step count or walking distance from HealthKit, sideload the
+`StepCompanion` iOS app from `companion-ios/`. While trail-simulator runs a
+route, the backend streams per-tick step deltas (derived from distance ÷
+configured stride) over WebSocket to one or more connected companion apps,
+which write `HKQuantityTypeIdentifier.stepCount` and `.distanceWalkingRunning`
+samples directly to HealthKit on each phone.
+
+Sideload instructions and a verification protocol are in
+[`companion-ios/README.md`](./companion-ios/README.md). Stride length and the
+feature toggle live in `trail_simulator/config.py`
+(`stride_length_m`, `step_companion_enabled`).
+
+> **Scope note.** HealthKit writes cover most apps that read step data via the
+> public `HKHealthStore` API. Apps that consult `CMPedometer` live (motion
+> coprocessor) will not see these writes — that path is out of scope for this
+> project.
 
 ## Home base station (recommended)
 
@@ -175,7 +241,7 @@ Cooldown state persists in `trail-simulator.db` (SQLite) across restarts.
 - `CLLocation.course` is NaN when injected via DVT (apps reading heading will see this).
 - `horizontalAccuracy` is not settable; some strict anti-cheat could flag it.
 - USB re-enumerate causes a brief gap; auto-reconnect is best-effort.
-- No step-count / HealthKit spoofing (out of scope; would require jailbreak).
+- Step counts reach HealthKit only when the `StepCompanion` iOS app is sideloaded and connected; apps that read live `CMPedometer` (motion coprocessor) data will not see the writes.
 
 ## Disclaimer
 
