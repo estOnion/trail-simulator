@@ -245,5 +245,6 @@ Temporary Items
 .claude/
 CLAUDE.md
 
-# Research records
-docs/
+# Research records (local-only); design specs under docs/superpowers/ are tracked
+docs/*
+!docs/superpowers/
