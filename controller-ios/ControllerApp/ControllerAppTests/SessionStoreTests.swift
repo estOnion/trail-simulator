@@ -57,6 +57,15 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.pinSelectionStage, .ready)
     }
 
+    func testNilCoordinatesAreNoOp() {
+        let store = SessionStore()
+        store.apply(snapshot: snapshot(state: .idle, lat: nil, lon: nil))
+        XCTAssertNil(store.currentPosition)
+        XCTAssertEqual(store.breadcrumb.count, 0)
+        // latest is still recorded so the UI can render state-only updates.
+        XCTAssertEqual(store.latest?.state, .idle)
+    }
+
     func testResetPinsClearsBoth() {
         let store = SessionStore()
         store.setPin(at: CLLocationCoordinate2D(latitude: 1, longitude: 1))

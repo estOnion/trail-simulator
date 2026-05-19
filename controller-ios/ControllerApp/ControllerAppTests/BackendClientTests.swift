@@ -67,6 +67,34 @@ final class BackendClientTests: XCTestCase {
         } catch { XCTFail("wrong error: \(error)") }
     }
 
+    func testRetargetMaps409ToSessionNotActive() async {
+        let body = #"{"detail":"no active session"}"#.data(using: .utf8)!
+        let client = makeClient { req in
+            (HTTPURLResponse(url: req.url!, statusCode: 409, httpVersion: nil, headerFields: nil)!, body)
+        }
+        let req = RetargetRequest(destinations: [.init(lat: 1, lon: 1)], loop: nil)
+        do {
+            _ = try await client.retarget(req)
+            XCTFail("expected throw")
+        } catch BackendError.sessionNotActive(let msg) {
+            XCTAssertEqual(msg, "no active session")
+        } catch { XCTFail("wrong error: \(error)") }
+    }
+
+    func testRetargetMaps502ToRouting() async {
+        let body = #"{"detail":"OSRM unreachable"}"#.data(using: .utf8)!
+        let client = makeClient { req in
+            (HTTPURLResponse(url: req.url!, statusCode: 502, httpVersion: nil, headerFields: nil)!, body)
+        }
+        let req = RetargetRequest(destinations: [.init(lat: 1, lon: 1)], loop: nil)
+        do {
+            _ = try await client.retarget(req)
+            XCTFail("expected throw")
+        } catch BackendError.routing(let msg) {
+            XCTAssertEqual(msg, "OSRM unreachable")
+        } catch { XCTFail("wrong error: \(error)") }
+    }
+
     func testSearchEncodesQuery() async throws {
         let body = #"{"results":[{"display_name":"Tokyo, Japan","lat":35.68,"lon":139.69,"type":"city"}]}"#.data(using: .utf8)!
         let client = makeClient { req in
