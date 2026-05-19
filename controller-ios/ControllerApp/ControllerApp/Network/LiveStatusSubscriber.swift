@@ -78,12 +78,10 @@ actor LiveStatusSubscriber {
 
     /// Static helpers — kept static so they're testable without spinning up a real task.
     static func decodeFrame(_ text: String) throws -> StatusSnapshot {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
         guard let data = text.data(using: .utf8) else {
             throw BackendError.transport("non-utf8 frame")
         }
-        return try decoder.decode(StatusSnapshot.self, from: data)
+        return try JSONDecoder().decode(StatusSnapshot.self, from: data)
     }
 
     static func webSocketURL(from baseURL: URL) -> URL {

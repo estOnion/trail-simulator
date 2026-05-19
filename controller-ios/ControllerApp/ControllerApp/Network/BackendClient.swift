@@ -10,9 +10,10 @@ actor BackendClient {
         self.baseURL = baseURL
         self.session = session
         self.decoder = JSONDecoder()
-        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
         self.encoder = JSONEncoder()
-        // Request bodies use explicit CodingKeys; no global key strategy.
+        // All models declare explicit CodingKeys — no global key strategy
+        // so models with snake_case keys (e.g. CooldownDetail) decode uniformly
+        // across the happy path and the error path.
     }
 
     func updateBaseURL(_ url: URL) {
@@ -100,7 +101,7 @@ actor BackendClient {
         case 429:
             if let obj = detail as? [String: Any],
                let cooldownData = try? JSONSerialization.data(withJSONObject: obj),
-               let cd = try? JSONDecoder().decode(CooldownDetail.self, from: cooldownData) {
+               let cd = try? decoder.decode(CooldownDetail.self, from: cooldownData) {
                 throw BackendError.cooldown(cd)
             }
             throw BackendError.server(429, String(describing: detail))
