@@ -2,11 +2,7 @@ import XCTest
 @testable import ControllerApp
 
 final class StatusSnapshotDecodingTests: XCTestCase {
-    private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.keyDecodingStrategy = .convertFromSnakeCase
-        return d
-    }()
+    private let decoder = JSONDecoder()
 
     func testDecodesIdleSnapshot() throws {
         let json = """
