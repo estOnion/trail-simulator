@@ -4,7 +4,7 @@ import SwiftUI
 struct ControllerAppApp: App {
     var body: some Scene {
         WindowGroup {
-            Text("ControllerApp — UI coming in Task 11")
+            RootView()
         }
     }
 }
