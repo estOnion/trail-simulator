@@ -1,6 +1,6 @@
 import Foundation
 
-struct CooldownDetail: Codable, Equatable {
+struct CooldownDetail: Codable, Equatable, Sendable {
     let cooldown: Bool
     let requiredWaitS: Double
     let jumpKm: Double

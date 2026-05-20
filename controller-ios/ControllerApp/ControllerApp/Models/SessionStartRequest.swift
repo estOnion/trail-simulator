@@ -1,6 +1,6 @@
 import Foundation
 
-struct SessionStartRequest: Codable, Equatable {
+struct SessionStartRequest: Codable, Equatable, Sendable {
     let startLat: Double
     let startLon: Double
     let destinations: [Destination]

@@ -1,6 +1,6 @@
 import Foundation
 
-struct Destination: Codable, Equatable {
+struct Destination: Codable, Equatable, Sendable {
     let lat: Double
     let lon: Double
 }

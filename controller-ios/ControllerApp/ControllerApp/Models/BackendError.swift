@@ -1,6 +1,6 @@
 import Foundation
 
-enum BackendError: Error, Equatable {
+enum BackendError: Error, Equatable, Sendable {
     case transport(String)             // URLSession failures, decode failures
     case sessionAlreadyActive(String)  // 409 from /api/session
     case sessionNotActive(String)      // 409 from /api/retarget
