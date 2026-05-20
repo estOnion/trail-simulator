@@ -12,6 +12,15 @@
 
 **Companion to spec:** `docs/superpowers/specs/2026-05-18-ios-controller-and-remote-spoofing-design.md`
 
+> **⚠️ Post-scaffold path correction (added 2026-05-18 after Task 1):**
+> Xcode created a nested project folder. Apply this transform to every path in this plan:
+> - `controller-ios/ControllerApp/<subdir>/...` → `controller-ios/ControllerApp/ControllerApp/<subdir>/...`
+> - `controller-ios/ControllerAppTests/...` → `controller-ios/ControllerApp/ControllerAppTests/...`
+> - `controller-ios/ControllerApp.xcodeproj` → `controller-ios/ControllerApp/ControllerApp.xcodeproj`
+> - `controller-ios/docs/...` unchanged
+>
+> `xcodebuild` commands should use `-project controller-ios/ControllerApp/ControllerApp.xcodeproj`. The scheme name remains `ControllerApp`. Info.plist already exists at the corrected location.
+
 ---
 
 ## API Contract (audited from backend on 2026-05-18)
