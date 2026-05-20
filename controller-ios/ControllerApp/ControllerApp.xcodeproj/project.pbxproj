@@ -29,20 +29,33 @@
 		9545423E2FBB5330006A97B2 /* ControllerAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ControllerAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		954542C52FBB60AC006A97B2 /* Exceptions for "ControllerApp" folder in "ControllerApp" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Resources/Info.plist,
+			);
+			target = 954542262FBB532F006A97B2 /* ControllerApp */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		954542292FBB532F006A97B2 /* ControllerApp */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ControllerApp;
-			sourceTree = "<group>";
-		};
-		954542372FBB5330006A97B2 /* ControllerAppTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = ControllerAppTests;
-			sourceTree = "<group>";
-		};
 		954542412FBB5330006A97B2 /* ControllerAppUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ControllerAppUITests;
+			sourceTree = "<group>";
+		};
+		954542B82FBB60AC006A97B2 /* ControllerApp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				954542C52FBB60AC006A97B2 /* Exceptions for "ControllerApp" folder in "ControllerApp" target */,
+			);
+			path = ControllerApp;
+			sourceTree = "<group>";
+		};
+		954542C72FBB60C5006A97B2 /* ControllerAppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ControllerAppTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -75,8 +88,8 @@
 		9545421E2FBB532F006A97B2 = {
 			isa = PBXGroup;
 			children = (
-				954542292FBB532F006A97B2 /* ControllerApp */,
-				954542372FBB5330006A97B2 /* ControllerAppTests */,
+				954542B82FBB60AC006A97B2 /* ControllerApp */,
+				954542C72FBB60C5006A97B2 /* ControllerAppTests */,
 				954542412FBB5330006A97B2 /* ControllerAppUITests */,
 				954542282FBB532F006A97B2 /* Products */,
 			);
@@ -108,7 +121,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				954542292FBB532F006A97B2 /* ControllerApp */,
+				954542B82FBB60AC006A97B2 /* ControllerApp */,
 			);
 			name = ControllerApp;
 			packageProductDependencies = (
@@ -131,7 +144,7 @@
 				954542362FBB5330006A97B2 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				954542372FBB5330006A97B2 /* ControllerAppTests */,
+				954542C72FBB60C5006A97B2 /* ControllerAppTests */,
 			);
 			name = ControllerAppTests;
 			packageProductDependencies = (
@@ -400,6 +413,7 @@
 				DEVELOPMENT_TEAM = 5PUKDM9K32;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ControllerApp/Resources/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -414,7 +428,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -432,6 +446,7 @@
 				DEVELOPMENT_TEAM = 5PUKDM9K32;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ControllerApp/Resources/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -446,7 +461,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;

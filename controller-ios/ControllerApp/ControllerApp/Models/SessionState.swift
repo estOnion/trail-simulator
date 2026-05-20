@@ -1,6 +1,6 @@
 import Foundation
 
-enum SessionState: String, Codable, Equatable {
+enum SessionState: String, Codable, Equatable, Sendable {
     case idle, starting, running, paused, stopping, reconnecting, error
     case unknown
 
