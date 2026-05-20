@@ -41,7 +41,7 @@ The bundled `Info.plist` already declares the keys the app needs:
 1. Pick any iOS Simulator (or your iPhone — see step 5) as the run destination.
 2. Build with **⌘B**. To run the test suite, press **⌘U** (targets `ControllerAppTests`).
 
-> **Note**: The project targets a recent iOS SDK (`IPHONEOS_DEPLOYMENT_TARGET = 26.0` in the Xcode project). Build with a matching Xcode/SDK, or lower the deployment target in **Build Settings** if you need to install on an older iOS version.
+> **Note**: The deployment target is **iOS 17.0** (`IPHONEOS_DEPLOYMENT_TARGET = 17.0`) — the app installs on iPhones running iOS 17 or later. Build with Xcode 16 or later.
 
 ## 5. Sideload to a physical iPhone
 
