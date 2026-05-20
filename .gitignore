@@ -248,3 +248,6 @@ CLAUDE.md
 # Research records (local-only); design specs under docs/superpowers/ are tracked
 docs/*
 !docs/superpowers/
+
+# Xcode user-specific state (should never be committed)
+**/xcuserdata/
