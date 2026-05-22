@@ -100,6 +100,14 @@ def build_router(controller: SessionController) -> APIRouter:
         await controller.stop()
         return {"ok": True}
 
+    @r.post("/reset")
+    async def reset():
+        try:
+            await controller.reset_device()
+        except RuntimeError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        return {"ok": True}
+
     @r.get("/search")
     async def search(q: str = "", limit: int = 8):
         query = q.strip()

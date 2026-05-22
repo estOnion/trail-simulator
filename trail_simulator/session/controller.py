@@ -278,6 +278,22 @@ class SessionController:
                 self._state = SessionState.idle
                 await self._broadcast()
 
+    async def reset_device(self) -> None:
+        """Release the phone back to real GPS (full clear + disconnect).
+        Only valid when settled — the UI must stop an active session first."""
+        async with self._lifecycle_lock:
+            if self._state not in (SessionState.idle, SessionState.error):
+                raise RuntimeError("stop the session before resetting")
+            try:
+                await self._device.clear()
+            except Exception:  # noqa: BLE001
+                pass
+            self._current = None
+            self._current_leg_target = None
+            self._last_error = None
+            self._state = SessionState.idle
+            await self._broadcast()
+
     async def update_destinations(
         self,
         destinations: list[tuple[float, float]],
