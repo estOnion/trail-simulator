@@ -291,6 +291,8 @@ class SessionController:
             self._current = None
             self._current_leg_target = None
             self._last_error = None
+            self._session_id = None
+            self._last_start_params = None
             self._state = SessionState.idle
             await self._broadcast()
 

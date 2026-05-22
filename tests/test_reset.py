@@ -61,6 +61,20 @@ def test_reset_endpoint_ok(tmp_path):
     assert dev.clear_count == 1
 
 
+@pytest.mark.asyncio
+async def test_reset_device_when_error_state_clears(tmp_path):
+    dev = FakeDevice()
+    c = SessionController(dev, Store(tmp_path / "t.db"))
+    c._state = SessionState.error
+    c._last_error = "device: boom"
+
+    await c.reset_device()
+
+    assert dev.clear_count == 1
+    assert c._state == SessionState.idle
+    assert c._last_error is None
+
+
 def test_reset_endpoint_conflict_when_active(tmp_path):
     dev = FakeDevice()
     c = SessionController(dev, Store(tmp_path / "t.db"))
