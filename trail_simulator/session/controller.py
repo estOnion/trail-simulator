@@ -483,13 +483,16 @@ class SessionController:
             self._state = SessionState.error
             log.exception("session loop crashed")
         finally:
-            try:
-                await self._device.clear()
-            except Exception:
-                pass
             # Ensure a clean state — covers CancelledError path where state wasn't set.
             if self._state not in (SessionState.idle, SessionState.error):
                 self._state = SessionState.idle
+            # Freeze: on normal stop/completion (idle) keep the DVT session open
+            # holding the last spoofed point. Only release the device on error.
+            if self._state == SessionState.error:
+                try:
+                    await self._device.clear()
+                except Exception:
+                    pass
             if self._session_id is not None:
                 self._store.session_end(
                     self._session_id,
