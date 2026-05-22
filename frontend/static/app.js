@@ -377,6 +377,10 @@
     await fetch('/api/stop', { method: 'POST' });
   });
 
+  el('reset-gps').onclick = () => runLifecycle(async () => {
+    await fetch('/api/reset', { method: 'POST' });
+  });
+
   function setMarkerInteractivity(active) {
     // Lock only the origin during an active session — destination markers
     // stay draggable so the queue can be edited live.
@@ -427,6 +431,9 @@
     el('pause').disabled  = !running;
     el('resume').disabled = !paused;
     el('stop').disabled   = !active && s.state !== 'error' && s.state !== 'reconnecting';
+    // Reset is offered only when settled and the phone is still holding a
+    // spoofed point (frozen). Once reset, current_lat goes null.
+    el('reset-gps').disabled = !(s.state === 'idle' && s.current_lat != null);
 
     setMarkerInteractivity(active);
 
@@ -452,6 +459,9 @@
           breadcrumb.setLatLngs(breadcrumbPoints);
         }
       }
+    } else if (currentMarker) {
+      map.removeLayer(currentMarker);
+      currentMarker = null;
     }
   }
 
