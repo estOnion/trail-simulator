@@ -37,6 +37,8 @@ class LocationClient:
     # ------------------------------------------------------------------ #
     async def open(self) -> None:
         async with self._lock:
+            if self._loc is not None:
+                return
             await self._connect()
 
     async def _connect(self) -> None:
