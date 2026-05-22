@@ -95,6 +95,16 @@ final class BackendClientTests: XCTestCase {
         } catch { XCTFail("wrong error: \(error)") }
     }
 
+    func testResetPostsToResetEndpoint() async throws {
+        let body = #"{"ok":true}"#.data(using: .utf8)!
+        let client = makeClient { req in
+            XCTAssertEqual(req.url?.path, "/api/reset")
+            XCTAssertEqual(req.httpMethod, "POST")
+            return (HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        try await client.reset()
+    }
+
     func testSearchEncodesQuery() async throws {
         let body = #"{"results":[{"display_name":"Tokyo, Japan","lat":35.68,"lon":139.69,"type":"city"}]}"#.data(using: .utf8)!
         let client = makeClient { req in
