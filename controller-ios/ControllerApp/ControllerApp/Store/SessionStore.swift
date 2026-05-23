@@ -38,6 +38,8 @@ final class SessionStore: ObservableObject {
             if Self.activeStates.contains(snapshot.state) {
                 breadcrumb.append(coord)
             }
+        } else {
+            currentPosition = nil
         }
     }
 

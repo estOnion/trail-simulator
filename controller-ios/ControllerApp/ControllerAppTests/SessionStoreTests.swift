@@ -66,6 +66,16 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.latest?.state, .idle)
     }
 
+    func testNilCoordinatesClearCurrentPosition() {
+        let store = SessionStore()
+        store.apply(snapshot: snapshot(state: .running, lat: 5, lon: 5))
+        XCTAssertNotNil(store.currentPosition)
+
+        // A reset broadcast carries nil coords — the marker must clear.
+        store.apply(snapshot: snapshot(state: .idle, lat: nil, lon: nil))
+        XCTAssertNil(store.currentPosition)
+    }
+
     func testResetPinsClearsBoth() {
         let store = SessionStore()
         store.setPin(at: CLLocationCoordinate2D(latitude: 1, longitude: 1))
