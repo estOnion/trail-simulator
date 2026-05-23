@@ -51,6 +51,7 @@ def build_app(controller: SessionController) -> FastAPI:
         finally:
             try:
                 await controller.stop()
+                await controller.reset_device()
             except Exception:
                 pass
 
