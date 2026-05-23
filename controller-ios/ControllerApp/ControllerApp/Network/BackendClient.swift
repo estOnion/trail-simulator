@@ -42,6 +42,7 @@ actor BackendClient {
     func pause() async throws { _ = try await postEmpty("/api/pause") }
     func resume() async throws { _ = try await postEmpty("/api/resume") }
     func stop() async throws { _ = try await postEmpty("/api/stop") }
+    func reset() async throws { _ = try await postEmpty("/api/reset") }
 
     func search(query: String, limit: Int = 8) async throws -> [SearchResult] {
         var comps = URLComponents(url: baseURL.appendingPathComponent("api/search"), resolvingAgainstBaseURL: false)!
