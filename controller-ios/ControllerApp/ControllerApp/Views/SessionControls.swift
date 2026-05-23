@@ -32,6 +32,15 @@ struct SessionControls: View {
                     }
                     .buttonStyle(.bordered)
                 }
+                if store.state == .idle, store.currentPosition != nil {
+                    Button("Reset GPS", role: .destructive) {
+                        Task {
+                            await action { try await client.reset() }
+                            store.clearBreadcrumb()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
 
             if let err = errorMessage {
