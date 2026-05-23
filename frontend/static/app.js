@@ -379,6 +379,7 @@
 
   el('reset-gps').onclick = () => runLifecycle(async () => {
     await fetch('/api/reset', { method: 'POST' });
+    clearCurrent();   // drop the stale dot + breadcrumb immediately (matches iOS)
   });
 
   function setMarkerInteractivity(active) {
