@@ -12,6 +12,9 @@ DB_PATH = PROJECT_ROOT / "trail-simulator.db"
 @dataclass(frozen=True)
 class Settings:
     host: str = "127.0.0.1"
+    # NOTE: 8787 can collide with the iOS device tunnel (pymobiledevice3/RSD),
+    # causing tunneld stream resets (error_code=5) and silent GPS-spoof failure.
+    # Override with --port (e.g. 8080) if a real-device session won't spoof.
     port: int = 8787
 
     tick_hz: float = 1.0
@@ -30,6 +33,10 @@ class Settings:
     tunneld_startup_s: float = 3.0
 
     reconnect_max_backoff_s: float = 30.0
+    # DTX simulate_location awaits a device reply with no built-in timeout.
+    # Cap each set() so a stalled tunnel triggers reconnect instead of
+    # hanging the tick loop forever.
+    device_set_timeout_s: float = 5.0
 
     step_companion_enabled: bool = True
     stride_length_m: float = 0.7

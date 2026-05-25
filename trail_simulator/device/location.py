@@ -66,12 +66,20 @@ class LocationClient:
         if self._loc is None:
             await self._reconnect()
         try:
-            await self._loc.set(lat, lon)
+            await self._set_with_timeout(lat, lon)
         except Exception as e:  # noqa: BLE001
             log.warning("location.set failed: %s — reconnecting", e)
             await self._reconnect()
             if self._loc is not None:
-                await self._loc.set(lat, lon)
+                await self._set_with_timeout(lat, lon)
+
+    async def _set_with_timeout(self, lat: float, lon: float) -> None:
+        # The DTX simulate_location reply can stall indefinitely if the tunnel
+        # goes quiet; wait_for converts that into a TimeoutError so the caller's
+        # reconnect path runs instead of the tick loop blocking forever.
+        await asyncio.wait_for(
+            self._loc.set(lat, lon), timeout=SETTINGS.device_set_timeout_s
+        )
 
     # ------------------------------------------------------------------ #
     async def clear(self) -> None:
