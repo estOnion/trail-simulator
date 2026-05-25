@@ -77,7 +77,14 @@ def build_app(controller: SessionController) -> FastAPI:
 def main() -> int:
     parser = argparse.ArgumentParser(prog="trail_simulator")
     parser.add_argument("--host", default=SETTINGS.host)
-    parser.add_argument("--port", type=int, default=SETTINGS.port)
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=SETTINGS.port,
+        help="HTTP/WebSocket port. Avoid ports the iOS device tunnel uses: binding "
+             "8787 has been observed to collide with the pymobiledevice3/RSD tunnel "
+             "(tunneld stream resets, error_code=5 → GPS won't spoof). Use e.g. 8080.",
+    )
     parser.add_argument(
         "--no-browser",
         action="store_true",
@@ -109,6 +116,16 @@ def main() -> int:
 
     if args.host != "127.0.0.1":
         log.warning("binding to %s — reachable from LAN (no auth)", args.host)
+
+    # Port 8787 has been observed to collide with the iOS device tunnel
+    # (pymobiledevice3/RSD): the tunneld HTTP/2 stream gets reset
+    # (error_code=5) and GPS injection silently fails. Warn when targeting a
+    # real device on that port; pick another (e.g. --port 8080) if it stalls.
+    if args.port == 8787 and not args.dev_no_device:
+        log.warning(
+            "port 8787 can collide with the iOS device tunnel (RSD); "
+            "if GPS won't spoof, retry with --port 8080"
+        )
 
     requested_udids: list[str] = list(args.udid) if args.udid else []
     resolved_udids: list[str | None] = []
