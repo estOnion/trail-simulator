@@ -55,7 +55,7 @@ final class HealthStore: ObservableObject {
     }
 
     func connect(baseURL: URL, label: String) {
-        guard enabled, writer.authorized else { return }
+        guard enabled else { return }
         client.connect(baseURL: baseURL, label: label) { [weak self] event in
             Task { @MainActor [weak self] in self?.apply(event: event) }
         }
