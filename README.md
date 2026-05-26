@@ -13,7 +13,7 @@ No jailbreak, no sideloading, no modifications to the iPhone — built on the sa
 - **Multi-device mirror mode** — drive several iPhones in lockstep with `--udid` repeated
 - **Wi-Fi-only operation** — once paired and `wifi-connections on`, no cable needed
 - **Home base station** mode — install once with `sudo`, then drive the iPhone from a Safari bookmark on the phone. No terminal, no cable, no sudo prompts after install.
-- **Step counter** (optional) — sideload the `StepCompanion` iOS app to write step count + walking distance into HealthKit in sync with the simulated route
+- **Step counter** (built into TrailController) — the Health tab in the TrailController iOS app writes step count + walking distance into HealthKit in sync with the simulated route
 - **UI preview** mode for tinkering with the map and controls without an iPhone attached
 - FastAPI + WebSocket backend, vanilla JS + Leaflet frontend
 
@@ -115,19 +115,18 @@ Type a place name (e.g. `"Yoyogi Park, Tokyo"`) into the search box and hit
 Enter to jump the map. Powered by OSM Nominatim — please respect their fair-use
 policy (no high-volume autosuggest, identifying User-Agent already set).
 
-### Step counter (optional iOS companion app)
+### Step counter (built into TrailController)
 
-For apps that read step count or walking distance from HealthKit, sideload the
-`StepCompanion` iOS app from `companion-ios/`. While trail-simulator runs a
-route, the backend streams per-tick step deltas (derived from distance ÷
-configured stride) over WebSocket to one or more connected companion apps,
-which write `HKQuantityTypeIdentifier.stepCount` and `.distanceWalkingRunning`
-samples directly to HealthKit on each phone.
+For apps that read step count or walking distance from HealthKit, use the
+**Health tab** in the TrailController iOS app (`controller-ios/`). While
+trail-simulator runs a route, the backend streams per-tick step deltas (derived
+from distance ÷ configured stride) over WebSocket to TrailController, which
+writes `HKQuantityTypeIdentifier.stepCount` and `.distanceWalkingRunning`
+samples directly to HealthKit on the same phone.
 
-Sideload instructions and a verification protocol are in
-[`companion-ios/README.md`](./companion-ios/README.md). Stride length and the
-feature toggle live in `trail_simulator/config.py`
-(`stride_length_m`, `step_companion_enabled`).
+See [`controller-ios/README.md`](./controller-ios/README.md) for sideload
+instructions. Stride length and the feature toggle live in
+`trail_simulator/config.py` (`stride_length_m`, `step_companion_enabled`).
 
 > **Scope note.** HealthKit writes cover most apps that read step data via the
 > public `HKHealthStore` API. Apps that consult `CMPedometer` live (motion
@@ -241,7 +240,7 @@ Cooldown state persists in `trail-simulator.db` (SQLite) across restarts.
 - `CLLocation.course` is NaN when injected via DVT (apps reading heading will see this).
 - `horizontalAccuracy` is not settable; some strict anti-cheat could flag it.
 - USB re-enumerate causes a brief gap; auto-reconnect is best-effort.
-- Step counts reach HealthKit only when the `StepCompanion` iOS app is sideloaded and connected; apps that read live `CMPedometer` (motion coprocessor) data will not see the writes.
+- Step counts reach HealthKit only when the TrailController iOS app is sideloaded and its Health tab is enabled; apps that read live `CMPedometer` (motion coprocessor) data will not see the writes.
 
 ## Disclaimer
 
