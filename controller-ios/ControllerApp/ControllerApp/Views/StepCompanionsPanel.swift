@@ -1,37 +1,25 @@
 import SwiftUI
 
 struct StepCompanionsPanel: View {
-    @EnvironmentObject var store: SessionStore
+    @EnvironmentObject var health: HealthStore
 
     var body: some View {
-        let companions = store.latest?.stepCompanions ?? []
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: "shoeprints.fill")
-                Text("Step companions").font(.headline)
-                Spacer()
-                Text("\(companions.count)").foregroundStyle(.secondary).monospacedDigit()
+        HStack(spacing: 10) {
+            Image(systemName: "iphone.gen3")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("This Device").font(.subheadline).bold()
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
             }
-            if companions.isEmpty {
-                Text("No step companions connected.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                ForEach(companions) { c in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(c.label).font(.subheadline)
-                            if let udid = c.udid {
-                                Text(udid).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                            }
-                        }
-                        Spacer()
-                        Text("\(c.totalAcked) steps").font(.caption).monospacedDigit()
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
+            Spacer()
+            Text("\(health.sessionSteps) steps")
+                .font(.caption).monospacedDigit()
         }
         .padding(10)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var subtitle: String {
+        if !health.writer.authorized { return "HealthKit not granted" }
+        return health.enabled ? "Writes enabled" : "Writes off"
     }
 }
