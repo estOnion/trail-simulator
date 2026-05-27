@@ -88,7 +88,7 @@ repeating `--udid`:
 python -m trail_simulator \
   --udid 00008150-001964DA3C02401C \
   --udid 00008150-001A029A0CE2401C \
-  --host 0.0.0.0 --port 8787
+  --host 0.0.0.0 --port 8080
 ```
 
 Each device gets its own `LocationSimulation` session under the hood; per-device
@@ -114,6 +114,42 @@ polls for up to ~8 s before reporting "device not found".
 Type a place name (e.g. `"Yoyogi Park, Tokyo"`) into the search box and hit
 Enter to jump the map. Powered by OSM Nominatim — please respect their fair-use
 policy (no high-volume autosuggest, identifying User-Agent already set).
+
+### Connect TrailController (iOS app) to the backend
+
+TrailController is sideloaded onto the same iPhone whose GPS the backend is
+spoofing. It controls the route from a native UI and (via the Health tab)
+writes steps to HealthKit. To reach the backend it needs the Mac's LAN address
+— `127.0.0.1` won't work from the phone.
+
+1. Start the backend bound to the LAN, on **port 8080**:
+   ```bash
+   uv run trail-simulator --host 0.0.0.0 --port 8080
+   ```
+   > **Port 8080, not 8787.** pymobiledevice3's RSD tunnel listens on
+   > `127.0.0.1:8787` *on the iPhone itself*. If the backend also runs on
+   > 8787, the phone's outbound LAN request gets intercepted by its own
+   > tunnel and GPS spoofing silently fails. Any free port other than 8787
+   > works; 8080 is the convention used here.
+
+2. Find the Mac's LAN IP (not the router gateway):
+   ```bash
+   ipconfig getifaddr en0       # Wi-Fi
+   # or ipconfig getifaddr en1  # Ethernet
+   ```
+
+3. On the iPhone, open TrailController → **Settings** tab → set
+   `http://<mac-LAN-IP>:8080` → **Test connection** → **Save**. The Map tab's
+   state pill should turn green once `/ws/live` connects.
+
+4. (Optional) First launch will prompt for **Local Network** and (if you
+   plan to use the Health tab) **HealthKit** permission. Grant both.
+
+If the connection fails, confirm:
+- iPhone and Mac are on the same Wi-Fi subnet.
+- macOS firewall isn't blocking Python (System Settings → Network → Firewall).
+- The backend is actually bound to `0.0.0.0` (you'll see it in the
+  trail-simulator startup log).
 
 ### Step counter (built into TrailController)
 
