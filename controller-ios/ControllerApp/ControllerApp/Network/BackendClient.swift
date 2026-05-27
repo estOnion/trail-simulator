@@ -1,13 +1,20 @@
 import Foundation
 
+struct BackendDevice: Codable, Sendable {
+    let udid: String
+    let name: String
+}
+
 actor BackendClient {
     private var baseURL: URL
+    private var deviceName: String?
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURL: URL, session: URLSession = .shared) {
+    init(baseURL: URL, deviceName: String? = nil, session: URLSession = .shared) {
         self.baseURL = baseURL
+        self.deviceName = deviceName
         self.session = session
         self.decoder = JSONDecoder()
         self.encoder = JSONEncoder()
@@ -18,6 +25,10 @@ actor BackendClient {
 
     func updateBaseURL(_ url: URL) {
         baseURL = url
+    }
+
+    func updateDeviceName(_ name: String?) {
+        deviceName = name
     }
 
     func fetchStatus() async throws -> StatusSnapshot {
@@ -44,13 +55,18 @@ actor BackendClient {
     func stop() async throws { _ = try await postEmpty("/api/stop") }
     func reset() async throws { _ = try await postEmpty("/api/reset") }
 
+    func fetchDevices() async throws -> [BackendDevice] {
+        try await getJSON("/api/devices", as: DevicesResponse.self).devices
+    }
+
     func search(query: String, limit: Int = 8) async throws -> [SearchResult] {
         var comps = URLComponents(url: baseURL.appendingPathComponent("api/search"), resolvingAgainstBaseURL: false)!
         comps.queryItems = [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "limit", value: String(limit)),
         ]
-        let req = URLRequest(url: comps.url!)
+        var req = URLRequest(url: comps.url!)
+        applyDeviceHeader(&req)
         let (data, response) = try await session.data(for: req)
         try checkOk(response, data: data, isStart: false)
         return try decoder.decode(SearchResponse.self, from: data).results
@@ -60,10 +76,19 @@ actor BackendClient {
 
     private struct Ok: Codable, Sendable { let ok: Bool }
     private struct OkReason: Codable, Sendable { let ok: Bool; let reason: String }
+    private struct DevicesResponse: Decodable { let devices: [BackendDevice] }
+
+    private func applyDeviceHeader(_ req: inout URLRequest) {
+        if let name = deviceName {
+            req.setValue(name, forHTTPHeaderField: "X-Device-Name")
+        }
+    }
 
     private func getJSON<T: Decodable>(_ path: String, as: T.Type) async throws -> T {
         let url = baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
-        let (data, resp) = try await session.data(for: URLRequest(url: url))
+        var req = URLRequest(url: url)
+        applyDeviceHeader(&req)
+        let (data, resp) = try await session.data(for: req)
         try checkOk(resp, data: data, isStart: false)
         return try decoder.decode(T.self, from: data)
     }
@@ -73,6 +98,7 @@ actor BackendClient {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try encoder.encode(body)
+        applyDeviceHeader(&req)
         let (data, resp) = try await session.data(for: req)
         try checkOk(resp, data: data, isStart: path.hasSuffix("/session"))
         return try decoder.decode(T.self, from: data)
@@ -81,6 +107,7 @@ actor BackendClient {
     private func postEmpty(_ path: String) async throws -> Bool {
         var req = URLRequest(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))))
         req.httpMethod = "POST"
+        applyDeviceHeader(&req)
         let (data, resp) = try await session.data(for: req)
         try checkOk(resp, data: data, isStart: false)
         return (try? decoder.decode(Ok.self, from: data).ok) ?? true
