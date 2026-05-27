@@ -11,7 +11,7 @@ struct RootView: View {
     init() {
         let cfg = BackendConfig.loadFromUserDefaults()
         _config = State(initialValue: cfg)
-        _client = State(initialValue: BackendClient(baseURL: cfg.baseURL))
+        _client = State(initialValue: BackendClient(baseURL: cfg.baseURL, deviceName: UIDevice.current.name))
     }
 
     private struct ConnectionKey: Equatable {
