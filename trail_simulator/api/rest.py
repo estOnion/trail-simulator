@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from ..device.registry import DeviceRegistry
 from ..geocode import GeocodeError, search as geocode_search
 from ..routing.osrm import RouteError
 from ..session.controller import SessionController
+from ..session.manager import SessionManager
 
 
 class Destination(BaseModel):
@@ -33,16 +35,53 @@ class SpeedReq(BaseModel):
     speed_kmh: float = Field(..., gt=0, le=20)
 
 
-def build_router(controller: SessionController) -> APIRouter:
+def build_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter:
     r = APIRouter()
 
+    def _resolve(
+        x_device_name: str | None,
+        device: str | None,
+    ) -> SessionController:
+        name = x_device_name or device
+        if name is None:
+            udid = registry.default_udid()
+            if udid is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Multiple devices registered; send X-Device-Name header.",
+                )
+            return manager.get_or_create(udid)
+        udid = registry.resolve(name)
+        if udid is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No backend device registered for name {name!r}.",
+            )
+        return manager.get_or_create(udid)
+
+    @r.get("/devices")
+    async def list_devices():
+        return {
+            "devices": [
+                {"udid": u, "name": n} for u, n in registry.list_devices()
+            ]
+        }
+
     @r.get("/status")
-    async def status():
-        s = controller.status()
-        return _to_dict(s)
+    async def status(
+        x_device_name: str | None = Header(default=None),
+        device: str | None = Query(default=None),
+    ):
+        controller = _resolve(x_device_name, device)
+        return _to_dict(controller.status())
 
     @r.post("/session")
-    async def start(req: StartReq):
+    async def start(
+        req: StartReq,
+        x_device_name: str | None = Header(default=None),
+        device: str | None = Query(default=None),
+    ):
+        controller = _resolve(x_device_name, device)
         dests = [(d.lat, d.lon) for d in req.destinations]
         try:
             decision = await controller.start(
@@ -67,7 +106,12 @@ def build_router(controller: SessionController) -> APIRouter:
         return {"ok": True, "reason": decision.reason}
 
     @r.post("/retarget")
-    async def retarget(req: RetargetReq):
+    async def retarget(
+        req: RetargetReq,
+        x_device_name: str | None = Header(default=None),
+        device: str | None = Query(default=None),
+    ):
+        controller = _resolve(x_device_name, device)
         dests = [(d.lat, d.lon) for d in req.destinations]
         try:
             await controller.update_destinations(dests, loop=req.loop)
@@ -78,7 +122,12 @@ def build_router(controller: SessionController) -> APIRouter:
         return {"ok": True}
 
     @r.post("/speed")
-    async def speed(req: SpeedReq):
+    async def speed(
+        req: SpeedReq,
+        x_device_name: str | None = Header(default=None),
+        device: str | None = Query(default=None),
+    ):
+        controller = _resolve(x_device_name, device)
         try:
             await controller.change_speed(req.speed_kmh)
         except RouteError as e:
@@ -86,22 +135,38 @@ def build_router(controller: SessionController) -> APIRouter:
         return {"ok": True}
 
     @r.post("/pause")
-    async def pause():
+    async def pause(
+        x_device_name: str | None = Header(default=None),
+        device: str | None = Query(default=None),
+    ):
+        controller = _resolve(x_device_name, device)
         await controller.pause()
         return {"ok": True}
 
     @r.post("/resume")
-    async def resume():
+    async def resume(
+        x_device_name: str | None = Header(default=None),
+        device: str | None = Query(default=None),
+    ):
+        controller = _resolve(x_device_name, device)
         await controller.resume()
         return {"ok": True}
 
     @r.post("/stop")
-    async def stop():
+    async def stop(
+        x_device_name: str | None = Header(default=None),
+        device: str | None = Query(default=None),
+    ):
+        controller = _resolve(x_device_name, device)
         await controller.stop()
         return {"ok": True}
 
     @r.post("/reset")
-    async def reset():
+    async def reset(
+        x_device_name: str | None = Header(default=None),
+        device: str | None = Query(default=None),
+    ):
+        controller = _resolve(x_device_name, device)
         try:
             await controller.reset_device()
         except RuntimeError as e:
