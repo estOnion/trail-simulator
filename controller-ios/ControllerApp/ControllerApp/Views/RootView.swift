@@ -14,6 +14,11 @@ struct RootView: View {
         _client = State(initialValue: BackendClient(baseURL: cfg.baseURL))
     }
 
+    private struct ConnectionKey: Equatable {
+        let url: URL
+        let connected: Bool
+    }
+
     var body: some View {
         TabView {
             MapTabView(client: client)
@@ -24,23 +29,17 @@ struct RootView: View {
                 .tabItem { Label("Health", systemImage: "heart.text.square") }
 
             SettingsTabView(config: $config, client: client)
+                .environmentObject(store)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
-        .task {
-            let stream = await subscriber.start(baseURL: config.baseURL)
+        .task(id: ConnectionKey(url: config.baseURL, connected: store.isConnected)) {
+            await subscriber.cancel()
+            health.disconnect()
+            guard store.isConnected else { return }
             health.connect(baseURL: config.baseURL, label: UIDevice.current.name)
+            let stream = await subscriber.start(baseURL: config.baseURL, deviceName: UIDevice.current.name)
             for await snap in stream {
                 store.apply(snapshot: snap)
-            }
-        }
-        .onChange(of: config) { _, newConfig in
-            Task {
-                await subscriber.cancel()
-                health.reconnect(baseURL: newConfig.baseURL, label: UIDevice.current.name)
-                let stream = await subscriber.start(baseURL: newConfig.baseURL)
-                for await snap in stream {
-                    store.apply(snapshot: snap)
-                }
             }
         }
     }
