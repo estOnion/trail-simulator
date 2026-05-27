@@ -89,4 +89,4 @@ The Health tab handles step-to-HealthKit writing on this device:
 - "Write steps to HealthKit" toggle controls the `/ws/steps` subscription.
 - Session and cumulative counters track what's been written.
 
-HealthKit requires a paid Apple Developer Program membership to enable on a sideloaded build. Free Apple IDs cannot ship HealthKit.
+A free Apple ID is sufficient — HealthKit is supported under Apple's free provisioning for personal sideloads (same 7-day expiry as the rest of the app).
