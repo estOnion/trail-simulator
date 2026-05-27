@@ -169,6 +169,60 @@ instructions. Stride length and the feature toggle live in
 > coprocessor) will not see these writes — that path is out of scope for this
 > project.
 
+## Connecting multiple iPhones to one backend
+
+TrailController supports running an independent session on each iPhone connected to the same Mac and the same backend. Each iPhone gets its own spoofed GPS track without interfering with the others.
+
+**How it works**
+
+- The backend builds a registry mapping each `--udid` to that iPhone's DeviceName (Settings → General → About → Name) at startup.
+- Each TrailController iPhone sends `UIDevice.current.name` in the `X-Device-Name` HTTP header and the `?device=` WebSocket query on every request.
+- The backend routes the request to the matching session — one `SessionController` per UDID.
+
+**Setup**
+
+1. Make sure every iPhone has a **unique** name in Settings → General → About → Name. The backend will refuse to start if two iPhones share a name.
+2. Plug each iPhone into the Mac via USB (or use Wi-Fi pairing once they're paired). Tap "Trust".
+3. Run `sudo pymobiledevice3 remote tunneld` and keep it running.
+4. Start the backend with one `--udid` flag per iPhone:
+
+   ```bash
+   python -m trail_simulator --port 8080 \
+     --udid 00008140-001A2B3C4D5E6F70 \
+     --udid 00008130-005ABCDE12345678
+   ```
+
+   On startup you'll see `[devices] parallel session mode for 2 devices: Jack iPhone, Spare iPhone`.
+
+5. On **each iPhone**, install TrailController and point Settings → Backend at `http://<your-mac-LAN-ip>:8080`. No further configuration is needed — the app auto-binds by DeviceName.
+
+**Verify**
+
+```bash
+curl http://127.0.0.1:8080/api/devices
+# {"devices":[{"udid":"00008140-...","name":"Jack iPhone"}, ...]}
+
+curl -H "X-Device-Name: Jack iPhone" http://127.0.0.1:8080/api/status
+# {"state":"idle", ...}
+```
+
+**Falling back to mirror mode**
+
+If you want one session that fans out to multiple iPhones (the original behaviour — useful for keeping a spare phone in sync with the primary), add `--mirror`:
+
+```bash
+python -m trail_simulator --port 8080 --mirror \
+  --udid 00008140-... --udid 00008130-...
+```
+
+In mirror mode only the primary iPhone's DeviceName is registered; all spoofed devices follow that one session.
+
+**Troubleshooting**
+
+- *"No backend device registered for name 'X'"*: the iPhone's name isn't in the backend's startup list. Confirm with `curl /api/devices` and rename the iPhone or re-launch the backend with the right `--udid`.
+- *"Multiple devices registered; send X-Device-Name header"*: someone hit a backend endpoint without the header while two or more devices are registered. The web frontend always falls back to the first device; this only affects custom tooling.
+- Two iPhones with the same name: the backend will exit on startup. Rename one in Settings → General → About → Name.
+
 ## Home base station (recommended)
 
 Turn a dedicated Mac (mini, iMac, or a docked laptop) into an always-on Trail
