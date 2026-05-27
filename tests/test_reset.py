@@ -5,7 +5,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from trail_simulator.api.rest import build_router
+from trail_simulator.device.registry import DeviceRegistry
 from trail_simulator.session.controller import SessionController, SessionState
+from trail_simulator.session.manager import SessionManager
 from trail_simulator.session.store import Store
 
 
@@ -51,8 +53,12 @@ async def test_reset_device_when_active_raises(tmp_path):
 def test_reset_endpoint_ok(tmp_path):
     dev = FakeDevice()
     c = SessionController(dev, Store(tmp_path / "t.db"))
+    registry = DeviceRegistry()
+    registry.register(udid="UDID-TEST", name="Test iPhone")
+    manager = SessionManager(device_factory=lambda u: dev, store=Store(tmp_path / "t.db"))
+    manager._controllers["UDID-TEST"] = c
     app = FastAPI()
-    app.include_router(build_router(c), prefix="/api")
+    app.include_router(build_router(manager, registry), prefix="/api")
     client = TestClient(app)
 
     r = client.post("/api/reset")
@@ -79,8 +85,12 @@ def test_reset_endpoint_conflict_when_active(tmp_path):
     dev = FakeDevice()
     c = SessionController(dev, Store(tmp_path / "t.db"))
     c._state = SessionState.running
+    registry = DeviceRegistry()
+    registry.register(udid="UDID-TEST", name="Test iPhone")
+    manager = SessionManager(device_factory=lambda u: dev, store=Store(tmp_path / "t.db"))
+    manager._controllers["UDID-TEST"] = c
     app = FastAPI()
-    app.include_router(build_router(c), prefix="/api")
+    app.include_router(build_router(manager, registry), prefix="/api")
     client = TestClient(app)
 
     r = client.post("/api/reset")
