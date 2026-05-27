@@ -14,10 +14,10 @@ actor LiveStatusSubscriber {
     }
 
     /// Starts the subscription. Calling again replaces the existing one.
-    func start(baseURL: URL) -> AsyncStream<StatusSnapshot> {
+    func start(baseURL: URL, deviceName: String?) -> AsyncStream<StatusSnapshot> {
         cancel()
 
-        let wsURL = Self.webSocketURL(from: baseURL)
+        let wsURL = Self.webSocketURL(from: baseURL, deviceName: deviceName)
         let (stream, cont) = AsyncStream<StatusSnapshot>.makeStream()
         continuation = cont
 
@@ -84,11 +84,15 @@ actor LiveStatusSubscriber {
         return try JSONDecoder().decode(StatusSnapshot.self, from: data)
     }
 
-    static func webSocketURL(from baseURL: URL) -> URL {
+    static func webSocketURL(from baseURL: URL, deviceName: String?) -> URL {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         components.scheme = (baseURL.scheme == "https") ? "wss" : "ws"
         components.path = "/ws/live"
-        components.query = nil
+        if let name = deviceName {
+            components.queryItems = [URLQueryItem(name: "device", value: name)]
+        } else {
+            components.query = nil
+        }
         return components.url!
     }
 }
