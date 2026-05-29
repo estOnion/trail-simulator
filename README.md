@@ -13,7 +13,7 @@ No jailbreak, no sideloading, no modifications to the iPhone — built on the sa
 - **Multi-device mirror mode** — drive several iPhones in lockstep with `--udid` repeated
 - **Wi-Fi-only operation** — once paired and `wifi-connections on`, no cable needed
 - **Home base station** mode — install once with `sudo`, then drive the iPhone from a Safari bookmark on the phone. No terminal, no cable, no sudo prompts after install.
-- **Step counter** (optional) — sideload the `StepCompanion` iOS app to write step count + walking distance into HealthKit in sync with the simulated route
+- **Step counter** (built into TrailController) — the Health tab in the TrailController iOS app writes step count + walking distance into HealthKit in sync with the simulated route
 - **UI preview** mode for tinkering with the map and controls without an iPhone attached
 - FastAPI + WebSocket backend, vanilla JS + Leaflet frontend
 
@@ -88,7 +88,7 @@ repeating `--udid`:
 python -m trail_simulator \
   --udid 00008150-001964DA3C02401C \
   --udid 00008150-001A029A0CE2401C \
-  --host 0.0.0.0 --port 8787
+  --host 0.0.0.0 --port 8080
 ```
 
 Each device gets its own `LocationSimulation` session under the hood; per-device
@@ -115,24 +115,139 @@ Type a place name (e.g. `"Yoyogi Park, Tokyo"`) into the search box and hit
 Enter to jump the map. Powered by OSM Nominatim — please respect their fair-use
 policy (no high-volume autosuggest, identifying User-Agent already set).
 
-### Step counter (optional iOS companion app)
+### Connect TrailController (iOS app) to the backend
 
-For apps that read step count or walking distance from HealthKit, sideload the
-`StepCompanion` iOS app from `companion-ios/`. While trail-simulator runs a
-route, the backend streams per-tick step deltas (derived from distance ÷
-configured stride) over WebSocket to one or more connected companion apps,
-which write `HKQuantityTypeIdentifier.stepCount` and `.distanceWalkingRunning`
-samples directly to HealthKit on each phone.
+TrailController is sideloaded onto the same iPhone whose GPS the backend is
+spoofing. It controls the route from a native UI and (via the Health tab)
+writes steps to HealthKit. To reach the backend it needs the Mac's LAN address
+— `127.0.0.1` won't work from the phone.
 
-Sideload instructions and a verification protocol are in
-[`companion-ios/README.md`](./companion-ios/README.md). Stride length and the
-feature toggle live in `trail_simulator/config.py`
-(`stride_length_m`, `step_companion_enabled`).
+1. Start the backend bound to the LAN, on **port 8080**:
+   ```bash
+   uv run trail-simulator --host 0.0.0.0 --port 8080
+   ```
+   > **Port 8080, not 8787.** pymobiledevice3's RSD tunnel listens on
+   > `127.0.0.1:8787` *on the iPhone itself*. If the backend also runs on
+   > 8787, the phone's outbound LAN request gets intercepted by its own
+   > tunnel and GPS spoofing silently fails. Any free port other than 8787
+   > works; 8080 is the convention used here.
+
+2. Find the Mac's LAN IP (not the router gateway):
+   ```bash
+   ipconfig getifaddr en0       # Wi-Fi
+   # or ipconfig getifaddr en1  # Ethernet
+   ```
+
+3. On the iPhone, open TrailController → **Settings** tab → set
+   `http://<mac-LAN-IP>:8080` → **Test connection** → **Save**. The Map tab's
+   state pill should turn green once `/ws/live` connects.
+
+4. (Optional) First launch will prompt for **Local Network** and (if you
+   plan to use the Health tab) **HealthKit** permission. Grant both.
+
+If the connection fails, confirm:
+- iPhone and Mac are on the same Wi-Fi subnet.
+- macOS firewall isn't blocking Python (System Settings → Network → Firewall).
+- The backend is actually bound to `0.0.0.0` (you'll see it in the
+  trail-simulator startup log).
+
+### Step counter (built into TrailController)
+
+For apps that read step count or walking distance from HealthKit, use the
+**Health tab** in the TrailController iOS app (`controller-ios/`). While
+trail-simulator runs a route, the backend streams per-tick step deltas (derived
+from distance ÷ configured stride) over WebSocket to TrailController, which
+writes `HKQuantityTypeIdentifier.stepCount` and `.distanceWalkingRunning`
+samples directly to HealthKit on the same phone.
+
+See [`controller-ios/README.md`](./controller-ios/README.md) for sideload
+instructions. Stride length and the feature toggle live in
+`trail_simulator/config.py` (`stride_length_m`, `step_companion_enabled`).
 
 > **Scope note.** HealthKit writes cover most apps that read step data via the
 > public `HKHealthStore` API. Apps that consult `CMPedometer` live (motion
 > coprocessor) will not see these writes — that path is out of scope for this
 > project.
+
+## Connecting multiple iPhones to one backend
+
+TrailController supports running an independent session on each iPhone connected to the same Mac and the same backend. Each iPhone gets its own spoofed GPS track without interfering with the others.
+
+**How it works**
+
+- The backend builds a registry mapping each `--udid` to that iPhone's DeviceName (Settings → General → About → Name) at startup.
+- Each TrailController iPhone sends `UIDevice.current.name` in the `X-Device-Name` HTTP header and the `?device=` WebSocket query on every request.
+- The backend routes the request to the matching session — one `SessionController` per UDID.
+
+**Setup**
+
+1. Make sure every iPhone has a **unique** name in Settings → General → About → Name. The backend will refuse to start if two iPhones share a name.
+2. Plug each iPhone into the Mac via USB (or use Wi-Fi pairing once they're paired). Tap "Trust".
+3. Run `sudo pymobiledevice3 remote tunneld` and keep it running.
+4. Start the backend with one `--udid` flag per iPhone:
+
+   ```bash
+   python -m trail_simulator --port 8080 \
+     --udid 00008140-001A2B3C4D5E6F70 \
+     --udid 00008130-005ABCDE12345678
+   ```
+
+   On startup you'll see `[devices] parallel session mode for 2 devices: Jack iPhone, Spare iPhone`.
+
+5. On **each iPhone**, install TrailController and point Settings → Backend at `http://<your-mac-LAN-ip>:8080`. No further configuration is needed — the app auto-binds by DeviceName.
+
+**Verify**
+
+```bash
+curl http://127.0.0.1:8080/api/devices
+# {"devices":[{"udid":"00008140-...","name":"Jack iPhone"}, ...]}
+
+curl -H "X-Device-Name: Jack iPhone" http://127.0.0.1:8080/api/status
+# {"state":"idle", ...}
+```
+
+**Falling back to mirror mode**
+
+If you want one session that fans out to multiple iPhones (the original behaviour — useful for keeping a spare phone in sync with the primary), add `--mirror`:
+
+```bash
+python -m trail_simulator --port 8080 --mirror \
+  --udid 00008140-... --udid 00008130-...
+```
+
+In mirror mode only the primary iPhone's DeviceName is registered; all spoofed devices follow that one session.
+
+**Troubleshooting**
+
+- *"No backend device registered for name 'X'"*: the iPhone's name isn't in the backend's startup list. Confirm with `curl /api/devices` and rename the iPhone or re-launch the backend with the right `--udid`.
+- *"Multiple devices registered; send X-Device-Name header"*: someone hit a backend endpoint without the header while two or more devices are registered. The web frontend always falls back to the first device; this only affects custom tooling.
+- Two iPhones with the same name: the backend will exit on startup. Rename one in Settings → General → About → Name.
+
+## Per-iPhone UUID identity & following a leader
+
+Each TrailController iPhone carries a **UUID** (Settings → Identity). It defaults
+to the device name and can be edited to any unique string. The app sends it as
+`X-Client-Id` on every request; the backend binds the UUID to the connected
+device and routes that iPhone's session by it, so two phones never share a
+session. (The `X-Device-Name` path above remains as a fallback for the web
+frontend and single-device setups.)
+
+- **Uniqueness:** on Save the app calls `POST /api/bind`; if another device
+  already holds that UUID the backend returns `409` and the change is rejected.
+- **Single device:** the UUID auto-binds — no device picking needed.
+- **Multiple devices:** pick this iPhone in Settings → Device, then save the UUID.
+
+**Following a leader** (Map → Follow button):
+
+- *Watch on map only* — your map shows the leader's live position; your phone is
+  untouched.
+- *Mirror onto this phone (GPS)* — your phone's spoofed GPS tracks the leader's
+  route (`POST /api/follow`). Tap **Stop** to end (`POST /api/unfollow`).
+
+```bash
+curl -H "X-Client-Id: my-uuid" http://127.0.0.1:8080/api/status
+curl http://127.0.0.1:8080/api/clients   # active leaders to follow
+```
 
 ## Home base station (recommended)
 
@@ -241,7 +356,7 @@ Cooldown state persists in `trail-simulator.db` (SQLite) across restarts.
 - `CLLocation.course` is NaN when injected via DVT (apps reading heading will see this).
 - `horizontalAccuracy` is not settable; some strict anti-cheat could flag it.
 - USB re-enumerate causes a brief gap; auto-reconnect is best-effort.
-- Step counts reach HealthKit only when the `StepCompanion` iOS app is sideloaded and connected; apps that read live `CMPedometer` (motion coprocessor) data will not see the writes.
+- Step counts reach HealthKit only when the TrailController iOS app is sideloaded and its Health tab is enabled; apps that read live `CMPedometer` (motion coprocessor) data will not see the writes.
 
 ## Disclaimer
 

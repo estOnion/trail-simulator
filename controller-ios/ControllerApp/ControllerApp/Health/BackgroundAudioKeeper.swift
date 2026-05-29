@@ -1,9 +1,9 @@
 import AVFoundation
 
 // Plays a silent looping buffer to keep the app process alive in background
-// so the WebSocket and HealthKit writes survive when the user switches to
-// Pikmin Bloom. Requires the "Audio, AirPlay, and Picture in Picture"
-// background mode capability — add it in Xcode → Signing & Capabilities.
+// so the /ws/live + /ws/steps WebSockets and HealthKit writes survive when
+// the user switches apps. Requires the "Audio, AirPlay, and Picture in Picture"
+// background mode capability.
 final class BackgroundAudioKeeper {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()

@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import HealthKit
 
 @MainActor
@@ -28,7 +29,7 @@ final class HealthWriter: ObservableObject {
     }
 
     func writeSteps(count: Int, distanceMeters: Double, end: Date) async {
-        let start = end.addingTimeInterval(-Double(count))  // 1 s per step as a reasonable sample span
+        let start = end.addingTimeInterval(-Double(count))
         let stepType = HKQuantityType(.stepCount)
         let stepSample = HKQuantitySample(
             type: stepType,
@@ -46,25 +47,7 @@ final class HealthWriter: ObservableObject {
         do {
             try await store.save([stepSample, distSample])
         } catch {
-            await MainActor.run { lastError = "write failed: \(error.localizedDescription)" }
-        }
-    }
-
-    // Debug helper — writes 100 steps over the last 60 s.
-    func writeDebugSample() async {
-        let end = Date()
-        let start = end.addingTimeInterval(-60)
-        let stepType = HKQuantityType(.stepCount)
-        let sample = HKQuantitySample(
-            type: stepType,
-            quantity: HKQuantity(unit: .count(), doubleValue: 100),
-            start: start,
-            end: end
-        )
-        do {
-            try await store.save(sample)
-        } catch {
-            await MainActor.run { lastError = "debug write failed: \(error.localizedDescription)" }
+            lastError = "write failed: \(error.localizedDescription)"
         }
     }
 }

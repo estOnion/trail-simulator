@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from trail_simulator.device.registry import DeviceRegistry
 from trail_simulator.main import build_app
 from trail_simulator.session.controller import SessionController
+from trail_simulator.session.manager import SessionManager
 from trail_simulator.session.store import Store
 
 
@@ -23,7 +25,11 @@ class FakeDevice:
 def test_shutdown_releases_device(tmp_path):
     dev = FakeDevice()
     c = SessionController(dev, Store(tmp_path / "t.db"))
-    app = build_app(c)
+    registry = DeviceRegistry()
+    registry.register(udid="UDID-TEST", name="Test iPhone")
+    manager = SessionManager(device_factory=lambda u: dev, store=Store(tmp_path / "t.db"))
+    manager._controllers["UDID-TEST"] = c
+    app = build_app(manager, registry)
 
     # Entering/exiting the TestClient context triggers lifespan startup+shutdown.
     with TestClient(app):

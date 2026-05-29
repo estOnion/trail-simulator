@@ -54,7 +54,28 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.pinSelectionStage, .destination)
         store.setPin(at: CLLocationCoordinate2D(latitude: 2, longitude: 2))
         XCTAssertNotNil(store.destination)
+        XCTAssertEqual(store.destinations.count, 1)
         XCTAssertEqual(store.pinSelectionStage, .ready)
+    }
+
+    func testSetPinAppendsAdditionalDestinations() {
+        let store = SessionStore()
+        store.setPin(at: CLLocationCoordinate2D(latitude: 1, longitude: 1)) // origin
+        store.setPin(at: CLLocationCoordinate2D(latitude: 2, longitude: 2)) // dest 1
+        store.setPin(at: CLLocationCoordinate2D(latitude: 3, longitude: 3)) // dest 2
+        XCTAssertEqual(store.destinations.count, 2)
+        XCTAssertEqual(store.destinations.last?.latitude, 3)
+        XCTAssertEqual(store.pinSelectionStage, .ready)
+    }
+
+    func testRemoveDestination() {
+        let store = SessionStore()
+        store.setPin(at: CLLocationCoordinate2D(latitude: 1, longitude: 1))
+        store.setPin(at: CLLocationCoordinate2D(latitude: 2, longitude: 2))
+        store.setPin(at: CLLocationCoordinate2D(latitude: 3, longitude: 3))
+        store.removeDestination(at: 0)
+        XCTAssertEqual(store.destinations.count, 1)
+        XCTAssertEqual(store.destinations.first?.latitude, 3)
     }
 
     func testNilCoordinatesAreNoOp() {
@@ -83,6 +104,7 @@ final class SessionStoreTests: XCTestCase {
         store.resetPins()
         XCTAssertNil(store.origin)
         XCTAssertNil(store.destination)
+        XCTAssertEqual(store.destinations.count, 0)
         XCTAssertEqual(store.pinSelectionStage, .origin)
     }
 }

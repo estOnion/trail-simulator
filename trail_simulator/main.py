@@ -21,8 +21,10 @@ from .config import FRONTEND_DIR, SETTINGS
 from .device.developer_mode import preflight
 from .device.location import LocationClient
 from .device.multi_location import MultiLocationClient
+from .device.registry import DeviceRegistry, fetch_device_name
 from .device.tunneld import start_instructions, tunneld_reachable
 from .session.controller import SessionController
+from .session.manager import SessionManager
 from .session.store import Store
 
 
@@ -43,21 +45,20 @@ class _StubLocation(LocationClient):
         log.info("[stub] device clear()")
 
 
-def build_app(controller: SessionController) -> FastAPI:
+def build_app(manager: SessionManager, registry: DeviceRegistry) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
             yield
         finally:
             try:
-                await controller.stop()
-                await controller.reset_device()
+                await manager.stop_all()
             except Exception:
                 pass
 
     app = FastAPI(title="Trail Simulator", lifespan=lifespan)
-    app.include_router(build_router(controller), prefix="/api")
-    app.include_router(build_ws_router(controller))
+    app.include_router(build_router(manager, registry), prefix="/api")
+    app.include_router(build_ws_router(manager, registry))
     app.include_router(build_ws_steps_router())
 
     if FRONTEND_DIR.exists():
@@ -106,6 +107,13 @@ def main() -> int:
         default=None,
         help="Target a specific iPhone by UDID. Repeat to mirror to multiple devices "
              "(e.g., --udid AAA --udid BBB). With no --udid, exactly one device must be connected.",
+    )
+    parser.add_argument(
+        "--mirror",
+        action="store_true",
+        help="Mirror one session across all --udid devices (legacy fan-out). "
+             "Default is parallel sessions — each --udid runs an independent "
+             "session, addressed by the iPhone's DeviceName.",
     )
     args = parser.parse_args()
 
@@ -157,17 +165,57 @@ def main() -> int:
         resolved_udids = [requested_udids[0] if requested_udids else None]
 
     store = Store()
+    registry = DeviceRegistry()
+
     if args.dev_no_device:
-        device = _StubLocation(udid=resolved_udids[0])
-    elif len(resolved_udids) > 1:
-        device = MultiLocationClient([u for u in resolved_udids if u is not None])
+        # Stub: register a single fake device named after this Mac.
+        import socket
+        fake_udid = resolved_udids[0] or "DEV-STUB"
+        registry.register(udid=fake_udid, name=socket.gethostname())
+        def _factory(udid):
+            return _StubLocation(udid=udid)
+        manager = SessionManager(device_factory=_factory, store=store)
+    elif args.mirror and len(resolved_udids) > 1:
+        # Legacy mirror mode: one controller, MultiLocationClient across N devices.
+        mirror_udids = [u for u in resolved_udids if u is not None]
+        primary_udid = mirror_udids[0]
+        try:
+            primary_name = asyncio.run(fetch_device_name(primary_udid))
+        except Exception:  # noqa: BLE001
+            primary_name = primary_udid
+        registry.register(udid=primary_udid, name=primary_name)
+        mirror_client = MultiLocationClient(mirror_udids)
+        def _factory(udid):  # returns the shared mirror client regardless of udid
+            return mirror_client
+        manager = SessionManager(device_factory=_factory, store=store)
         print(f"[devices] mirror mode active for {len(resolved_udids)} devices")
     else:
-        device = LocationClient(udid=resolved_udids[0])
-    controller = SessionController(device, store)
+        # Default: one SessionController per UDID. Build the registry by
+        # asking each device for its DeviceName.
+        for u in resolved_udids:
+            if u is None:
+                continue
+            try:
+                name = asyncio.run(fetch_device_name(u))
+            except Exception as e:  # noqa: BLE001
+                log.warning("could not read DeviceName for %s, using UDID: %s", u, e)
+                name = u
+            registry.register(udid=u, name=name)
+        def _factory(udid):
+            return LocationClient(udid=udid)
+        manager = SessionManager(device_factory=_factory, store=store)
+    if len(resolved_udids) > 1 and not args.mirror:
+        names = ", ".join(n for _, n in registry.list_devices())
+        print(f"[devices] parallel session mode for {len(resolved_udids)} "
+              f"devices: {names}")
+
     from .api.ws_steps import broadcaster as _step_broadcaster
-    _step_broadcaster.set_change_callback(controller._broadcast)
-    app = build_app(controller)
+
+    async def _on_step_clients_change() -> None:
+        await asyncio.gather(*[c._broadcast() for _, c in manager.list_active()])
+
+    _step_broadcaster.set_change_callback(_on_step_clients_change)
+    app = build_app(manager, registry)
 
     url = f"http://{args.host}:{args.port}/"
     if not args.no_browser:

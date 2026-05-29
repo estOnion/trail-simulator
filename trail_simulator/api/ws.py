@@ -3,22 +3,38 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
-from ..session.controller import SessionController, StatusSnapshot
+from ..device.registry import DeviceRegistry
+from ..session.controller import StatusSnapshot
+from ..session.manager import SessionManager
 
 
-def build_ws_router(controller: SessionController) -> APIRouter:
+def build_ws_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter:
     r = APIRouter()
 
     @r.websocket("/ws/live")
     async def ws_live(ws: WebSocket):
+        client = ws.query_params.get("client")
+        device = ws.query_params.get("device")
+        if client:
+            udid = registry.resolve_client(client)
+            if udid is None:
+                udid = registry.auto_bind_single(client)
+        else:
+            udid = registry.resolve(device) if device else None
+            if udid is None:
+                udid = registry.default_udid()
+        if udid is None:
+            await ws.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        controller = manager.get_or_create(udid)
         await ws.accept()
         queue: asyncio.Queue[StatusSnapshot] = asyncio.Queue(maxsize=64)
 
         async def listener(snap: StatusSnapshot) -> None:
             if queue.full():
-                # drop oldest to keep latest
                 try:
                     queue.get_nowait()
                 except Exception:
@@ -26,7 +42,6 @@ def build_ws_router(controller: SessionController) -> APIRouter:
             await queue.put(snap)
 
         controller.add_listener(listener)
-        # push initial snapshot
         await queue.put(controller.status())
 
         try:

@@ -1,31 +1,41 @@
 import Foundation
 import Combine
-
-// Message shapes from trail-simulator backend.
-struct StepEvent: Decodable {
-    let type: String
-    let steps: Int?
-    let distance_m: Double?
-    let ts: String?
-}
+import UIKit
 
 @MainActor
 final class StepClient: ObservableObject {
     @Published var connected = false
-    @Published var totalWritten = 0
     @Published var lastError: String?
 
     private var task: URLSessionWebSocketTask?
-    private weak var writer: HealthWriter?
+    private var onEvent: ((StepEvent) -> Void)?
 
-    func connect(url: URL, writer: HealthWriter, label: String, udid: String?) {
-        self.writer = writer
+    nonisolated static func stepsURL(from base: URL) -> URL? {
+        var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        guard let scheme = comps?.scheme?.lowercased() else { return nil }
+        switch scheme {
+        case "http":  comps?.scheme = "ws"
+        case "https": comps?.scheme = "wss"
+        case "ws", "wss": break
+        default: return nil
+        }
+        comps?.path = "/ws/steps"
+        return comps?.url
+    }
+
+    func connect(baseURL: URL, label: String, onEvent: @escaping (StepEvent) -> Void) {
+        guard let url = Self.stepsURL(from: baseURL) else {
+            lastError = "invalid base URL"
+            return
+        }
+        self.onEvent = onEvent
         task?.cancel(with: .normalClosure, reason: nil)
         let session = URLSession(configuration: .default)
         task = session.webSocketTask(with: url)
         task?.resume()
+
         Task { @MainActor in
-            let hello: [String: String] = ["type": "hello", "device_label": label, "udid": udid ?? ""]
+            let hello: [String: String] = ["type": "hello", "device_label": label, "udid": ""]
             if let data = try? JSONSerialization.data(withJSONObject: hello),
                let text = String(data: data, encoding: .utf8) {
                 try? await task?.send(.string(text))
@@ -51,8 +61,9 @@ final class StepClient: ObservableObject {
                     self.lastError = error.localizedDescription
                     self.connected = false
                 case .success(let msg):
-                    if case .string(let text) = msg {
-                        self.handle(text)
+                    if case .string(let text) = msg, let data = text.data(using: .utf8),
+                       let event = try? JSONDecoder().decode(StepEvent.self, from: data) {
+                        self.onEvent?(event)
                     }
                     self.receive()
                 }
@@ -60,27 +71,12 @@ final class StepClient: ObservableObject {
         }
     }
 
-    private func handle(_ text: String) {
-        guard
-            let data = text.data(using: .utf8),
-            let event = try? JSONDecoder().decode(StepEvent.self, from: data),
-            event.type == "steps",
-            let n = event.steps, n > 0,
-            let dist = event.distance_m
-        else { return }
-
-        Task {
-            await writer?.writeSteps(count: n, distanceMeters: dist, end: Date())
-            await MainActor.run { self.totalWritten += n }
-        }
-    }
-
     private func scheduleHeartbeat() {
-        Task {
+        Task { @MainActor in
             while connected {
                 try? await Task.sleep(for: .seconds(10))
                 guard connected else { break }
-                let payload = "{\"type\":\"heartbeat\",\"total_written\":\(totalWritten)}"
+                let payload = "{\"type\":\"heartbeat\"}"
                 try? await task?.send(.string(payload))
             }
         }
