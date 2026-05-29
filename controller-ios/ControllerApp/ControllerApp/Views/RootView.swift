@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 struct RootView: View {
     @StateObject private var store = SessionStore()
@@ -11,11 +10,12 @@ struct RootView: View {
     init() {
         let cfg = BackendConfig.loadFromUserDefaults()
         _config = State(initialValue: cfg)
-        _client = State(initialValue: BackendClient(baseURL: cfg.baseURL, deviceName: UIDevice.current.name))
+        _client = State(initialValue: BackendClient(baseURL: cfg.baseURL, deviceName: cfg.deviceName))
     }
 
     private struct ConnectionKey: Equatable {
         let url: URL
+        let deviceName: String?
         let connected: Bool
     }
 
@@ -32,12 +32,15 @@ struct RootView: View {
                 .environmentObject(store)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
-        .task(id: ConnectionKey(url: config.baseURL, connected: store.isConnected)) {
+        .task(id: ConnectionKey(url: config.baseURL, deviceName: config.deviceName, connected: store.isConnected)) {
             await subscriber.cancel()
             health.disconnect()
+            await client.updateBaseURL(config.baseURL)
+            await client.updateDeviceName(config.deviceName)
             guard store.isConnected else { return }
-            health.connect(baseURL: config.baseURL, label: UIDevice.current.name)
-            let stream = await subscriber.start(baseURL: config.baseURL, deviceName: UIDevice.current.name)
+            let label = config.deviceName ?? "iPhone"
+            health.connect(baseURL: config.baseURL, label: label)
+            let stream = await subscriber.start(baseURL: config.baseURL, deviceName: config.deviceName)
             for await snap in stream {
                 store.apply(snapshot: snap)
             }
