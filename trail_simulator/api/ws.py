@@ -15,10 +15,16 @@ def build_ws_router(manager: SessionManager, registry: DeviceRegistry) -> APIRou
 
     @r.websocket("/ws/live")
     async def ws_live(ws: WebSocket):
+        client = ws.query_params.get("client")
         device = ws.query_params.get("device")
-        udid = registry.resolve(device) if device else None
-        if udid is None:
-            udid = registry.default_udid()
+        if client:
+            udid = registry.resolve_client(client)
+            if udid is None:
+                udid = registry.auto_bind_single(client)
+        else:
+            udid = registry.resolve(device) if device else None
+            if udid is None:
+                udid = registry.default_udid()
         if udid is None:
             await ws.close(code=status.WS_1008_POLICY_VIOLATION)
             return
