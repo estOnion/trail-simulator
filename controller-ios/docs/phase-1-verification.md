@@ -69,3 +69,14 @@ Fill in **Result** (✅ / ❌) and **Notes** as you go.
 - **Overall:** [ ] PASS  [ ] FAIL
 - **Blocking issues found:**
 - **Non-blocking issues found:**
+
+## Phase 1.5 — HealthKit merge verification
+
+- [ ] Fresh install → app prompts for HealthKit auth on first launch (HealthTabView "Request" button if denied initially).
+- [ ] Toggle "Write steps to HealthKit" → row shows "Writes enabled".
+- [ ] Start a session from the Map tab → step counter on Health tab increments live.
+- [ ] Open iOS Health app → Steps source list shows TrailController writing samples.
+- [ ] Background the app (home gesture) → after 2 minutes, return to app; counters should still be increasing (BackgroundAudioKeeper).
+- [ ] Lock the phone → step events keep flowing (verify in Health app source data).
+- [ ] Change backend URL in Settings → /ws/live and /ws/steps both reconnect; counters continue.
+- [ ] Toggle off → /ws/steps disconnects, session counters reset to 0, cumulative persists.

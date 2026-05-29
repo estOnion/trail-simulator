@@ -11,13 +11,33 @@ final class SessionStore: ObservableObject {
     @Published private(set) var breadcrumb: [CLLocationCoordinate2D] = []
     @Published private(set) var currentPosition: CLLocationCoordinate2D? = nil
     @Published var origin: CLLocationCoordinate2D? = nil
-    @Published var destination: CLLocationCoordinate2D? = nil
+    @Published var destinations: [CLLocationCoordinate2D] = []
     @Published var speedKmh: Double = 4.0   // default walking pace
     @Published var lastError: BackendError? = nil
 
+    // Bumped whenever the user picks a search result or taps "current location"
+    // so MapScreen can recenter without us owning the camera.
+    @Published var cameraFocus: CameraFocus? = nil
+
+    // User-controlled connection toggle. Drives the WS lifecycle in RootView.
+    @Published var isConnected: Bool = true
+
+    // When set, the Map view watches a leader's live stream instead of this
+    // device's own session (view-only follow). RootView repoints the subscriber.
+    @Published var watchingLeaderId: String? = nil
+
+    struct CameraFocus: Equatable {
+        let coordinate: CLLocationCoordinate2D
+        let id: UUID
+
+        static func == (lhs: CameraFocus, rhs: CameraFocus) -> Bool { lhs.id == rhs.id }
+    }
+
+    var destination: CLLocationCoordinate2D? { destinations.last }
+
     var pinSelectionStage: PinStage {
         if origin == nil { return .origin }
-        if destination == nil { return .destination }
+        if destinations.isEmpty { return .destination }
         return .ready
     }
 
@@ -27,7 +47,7 @@ final class SessionStore: ObservableObject {
     // web-UI fix where idle/stopping/error/reconnecting carried stale
     // coordinates from the previous route and would otherwise splice into
     // the new trail.
-    static let activeStates: Set<SessionState> = [.starting, .running, .paused]
+    static let activeStates: Set<SessionState> = [.starting, .running, .paused, .following]
 
     func apply(snapshot: StatusSnapshot) {
         latest = snapshot
@@ -48,15 +68,24 @@ final class SessionStore: ObservableObject {
     }
 
     func setPin(at coord: CLLocationCoordinate2D) {
-        switch pinSelectionStage {
-        case .origin:       origin = coord
-        case .destination:  destination = coord
-        case .ready:        break
+        if origin == nil {
+            origin = coord
+        } else {
+            destinations.append(coord)
         }
+    }
+
+    func removeDestination(at index: Int) {
+        guard destinations.indices.contains(index) else { return }
+        destinations.remove(at: index)
     }
 
     func resetPins() {
         origin = nil
-        destination = nil
+        destinations.removeAll()
+    }
+
+    func focusCamera(on coord: CLLocationCoordinate2D) {
+        cameraFocus = CameraFocus(coordinate: coord, id: UUID())
     }
 }

@@ -10,6 +10,10 @@ struct SessionControls: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            if !store.destinations.isEmpty {
+                DestinationsList()
+            }
+
             HStack {
                 Text("Speed").font(.subheadline)
                 Slider(value: $store.speedKmh, in: 0.5...20.0, step: 0.5)
@@ -74,12 +78,13 @@ struct SessionControls: View {
     }
 
     private func startSession(skipCooldown: Bool) async {
-        guard let o = store.origin, let d = store.destination else { return }
+        guard let o = store.origin, !store.destinations.isEmpty else { return }
+        let dests = store.destinations.map { Destination(lat: $0.latitude, lon: $0.longitude) }
         store.clearBreadcrumb()
         await action {
             let req = SessionStartRequest(
                 startLat: o.latitude, startLon: o.longitude,
-                destinations: [Destination(lat: d.latitude, lon: d.longitude)],
+                destinations: dests,
                 speedKmh: store.speedKmh,
                 loop: false,
                 skipCooldown: skipCooldown
@@ -105,5 +110,37 @@ struct SessionControls: View {
         } catch {
             errorMessage = "\(error)"
         }
+    }
+}
+
+private struct DestinationsList: View {
+    @EnvironmentObject var store: SessionStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Destinations").font(.caption).foregroundStyle(.secondary)
+            ForEach(Array(store.destinations.enumerated()), id: \.offset) { idx, d in
+                HStack {
+                    Image(systemName: idx == store.destinations.count - 1 ? "flag.fill" : "mappin.circle.fill")
+                        .foregroundStyle(idx == store.destinations.count - 1 ? .red : .orange)
+                    Text("\(idx + 1). \(String(format: "%.4f, %.4f", d.latitude, d.longitude))")
+                        .font(.caption)
+                        .monospacedDigit()
+                    Spacer()
+                    Button(role: .destructive) {
+                        store.removeDestination(at: idx)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove destination \(idx + 1)")
+                }
+            }
+            Text("Tap the map or search to add more stops.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

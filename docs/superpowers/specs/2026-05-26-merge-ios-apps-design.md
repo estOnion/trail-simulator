@@ -184,7 +184,7 @@ Existing tests (`BackendClientTests`, `LiveStatusSubscriberTests`, `SessionStore
 
 ## 12. Risks & open questions
 
-- **HealthKit entitlement on free Apple ID.** HealthKit requires a paid Apple Developer Program membership; free sideloads cannot enable it. If the user is on a free Apple ID, the merged app will fail to install. **Action:** confirm with user before implementation (resolve before plan executes).
+- **HealthKit entitlement on free Apple ID.** Resolved: free Apple IDs support HealthKit under Apple's free provisioning for personal sideloads (StepCompanion already runs this way). No additional account work needed.
 - **Two WebSockets on one app.** Backend already supports this; no change needed. iOS allows it.
 - **Background audio in App Store review.** Not relevant — app is sideloaded only.
 - **`StepClient.hello` `udid` field** previously came from user input. Merged app sends an empty `udid` and a `device_label` of `UIDevice.current.name`. Backend treats `udid` as optional today.

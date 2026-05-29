@@ -80,4 +80,13 @@ The pill in the top-left navigation bar reflects the live `SessionState` from th
 
 ### Step companions
 
-The **Step companions** panel below the controls lists any `StepCompanion` apps currently connected to the backend (label, optional device UDID, and total acked steps), or "No step companions connected." when none are attached. See [`companion-ios/README.md`](../companion-ios/README.md) for the companion sideload guide.
+The **Step companions** panel below the controls lists any companion connections currently active on the backend, or "No step companions connected." when none are attached. Step writing is now handled directly by the Health tab in this app — see section 8 below.
+
+## 8. HealthKit (built-in)
+
+The Health tab handles step-to-HealthKit writing on this device:
+- First launch prompts for HealthKit write permission.
+- "Write steps to HealthKit" toggle controls the `/ws/steps` subscription.
+- Session and cumulative counters track what's been written.
+
+A free Apple ID is sufficient — HealthKit is supported under Apple's free provisioning for personal sideloads (same 7-day expiry as the rest of the app).

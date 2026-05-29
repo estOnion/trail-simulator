@@ -1,88 +1,54 @@
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @StateObject private var store = SessionStore()
-    @State private var config: BackendConfig = BackendConfig.loadFromUserDefaults()
+    @EnvironmentObject var health: HealthStore
+    @State private var config: BackendConfig
     @State private var client: BackendClient
     @State private var subscriber = LiveStatusSubscriber()
-    @State private var showSettings = false
 
     init() {
-        let cfg = BackendConfig.loadFromUserDefaults()
+        let cfg = BackendConfig.loadFromUserDefaults(defaultClientId: UIDevice.current.name)
         _config = State(initialValue: cfg)
-        _client = State(initialValue: BackendClient(baseURL: cfg.baseURL))
+        _client = State(initialValue: BackendClient(
+            baseURL: cfg.baseURL, deviceName: cfg.deviceName, clientId: cfg.clientId))
+    }
+
+    private struct ConnectionKey: Equatable {
+        let url: URL
+        let clientId: String
+        let watching: String?
+        let connected: Bool
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                SearchBar(client: client) { coord in
-                    store.setPin(at: coord)
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
+        TabView {
+            MapTabView(client: client)
+                .environmentObject(store)
+                .tabItem { Label("Map", systemImage: "map") }
 
-                MapScreen()
-                    .environmentObject(store)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HealthTabView(health: health)
+                .tabItem { Label("Health", systemImage: "heart.text.square") }
 
-                VStack(spacing: 10) {
-                    SessionControls(client: client).environmentObject(store)
-                    StepCompanionsPanel().environmentObject(store)
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 10)
-            }
-            .navigationTitle("Trail Controller")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    StatePill(state: store.state)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                }
-            }
-            .sheet(isPresented: $showSettings) {
-                SettingsScreen(config: $config, client: client)
-            }
-            .task {
-                let stream = await subscriber.start(baseURL: config.baseURL)
-                for await snap in stream {
-                    store.apply(snapshot: snap)
-                }
-            }
-            .onChange(of: config) { _, newConfig in
-                Task {
-                    await subscriber.cancel()
-                    let stream = await subscriber.start(baseURL: newConfig.baseURL)
-                    for await snap in stream {
-                        store.apply(snapshot: snap)
-                    }
-                }
-            }
+            SettingsTabView(config: $config, client: client)
+                .environmentObject(store)
+                .tabItem { Label("Settings", systemImage: "gearshape") }
         }
-    }
-}
-
-private struct StatePill: View {
-    let state: SessionState
-    var body: some View {
-        Text(state.rawValue)
-            .font(.caption).bold()
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(color.opacity(0.2), in: Capsule())
-            .foregroundStyle(color)
-    }
-    private var color: Color {
-        switch state {
-        case .running:      return .green
-        case .paused:       return .orange
-        case .stopping, .reconnecting: return .yellow
-        case .error:        return .red
-        case .starting:     return .blue
-        case .idle:         return .secondary
-        case .unknown:      return .secondary
+        .task(id: ConnectionKey(url: config.baseURL, clientId: config.clientId,
+                                watching: store.watchingLeaderId, connected: store.isConnected)) {
+            await subscriber.cancel()
+            health.disconnect()
+            await client.updateBaseURL(config.baseURL)
+            await client.updateClientId(config.clientId)
+            await client.updateDeviceName(config.deviceName)
+            guard store.isConnected else { return }
+            health.connect(baseURL: config.baseURL, label: config.clientId)
+            let effective = store.watchingLeaderId ?? config.clientId
+            let stream = await subscriber.start(baseURL: config.baseURL, clientId: effective)
+            for await snap in stream {
+                store.apply(snapshot: snap)
+            }
         }
     }
 }

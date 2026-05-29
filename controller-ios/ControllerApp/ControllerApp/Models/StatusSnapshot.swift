@@ -14,6 +14,7 @@ struct StatusSnapshot: Codable, Equatable, Sendable {
     let cooldownRemainingS: Double
     let stepsSent: Int
     let stepCompanions: [StepCompanionInfo]
+    let followingLeader: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case state
@@ -29,5 +30,6 @@ struct StatusSnapshot: Codable, Equatable, Sendable {
         case cooldownRemainingS = "cooldown_remaining_s"
         case stepsSent = "steps_sent"
         case stepCompanions = "step_companions"
+        case followingLeader = "following_leader"
     }
 }
