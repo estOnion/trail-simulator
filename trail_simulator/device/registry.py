@@ -10,6 +10,10 @@ class DuplicateDeviceNameError(RuntimeError):
     """Two iPhones report the same DeviceName — the user must rename one."""
 
 
+class DuplicateClientIdError(RuntimeError):
+    """Another device already registered this client UUID."""
+
+
 class DeviceRegistry:
     """In-memory map from human DeviceName to iPhone UDID.
 
@@ -22,6 +26,8 @@ class DeviceRegistry:
     def __init__(self) -> None:
         self._by_name: dict[str, str] = {}
         self._by_udid: dict[str, str] = {}
+        self._client_to_udid: dict[str, str] = {}
+        self._udid_to_client: dict[str, str] = {}
 
     def register(self, udid: str, name: str) -> None:
         if name in self._by_name and self._by_name[name] != udid:
@@ -43,6 +49,40 @@ class DeviceRegistry:
 
     def default_udid(self) -> str | None:
         return next(iter(self._by_udid)) if len(self._by_udid) == 1 else None
+
+    def bind(self, client_id: str, udid: str) -> None:
+        existing = self._client_to_udid.get(client_id)
+        if existing is not None and existing != udid:
+            raise DuplicateClientIdError(
+                f"client id {client_id!r} is already bound to another device."
+            )
+        old = self._udid_to_client.get(udid)
+        if old is not None and old != client_id:
+            self._client_to_udid.pop(old, None)
+        self._client_to_udid[client_id] = udid
+        self._udid_to_client[udid] = client_id
+
+    def resolve_client(self, client_id: str) -> str | None:
+        return self._client_to_udid.get(client_id)
+
+    def client_for(self, udid: str) -> str | None:
+        return self._udid_to_client.get(udid)
+
+    def auto_bind_single(self, client_id: str) -> str | None:
+        if len(self._by_udid) != 1:
+            return None
+        udid = next(iter(self._by_udid))
+        existing = self._udid_to_client.get(udid)
+        if existing is not None and existing != client_id:
+            return None
+        self.bind(client_id, udid)
+        return udid
+
+    def list_clients(self) -> list[tuple[str, str, str]]:
+        return [
+            (cid, udid, self._by_udid.get(udid, ""))
+            for cid, udid in self._client_to_udid.items()
+        ]
 
 
 async def fetch_device_name(udid: str) -> str:
