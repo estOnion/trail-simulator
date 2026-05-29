@@ -36,9 +36,11 @@ def test_ws_live_by_client_id(tmp_path):
 
 def test_ws_live_unbound_client_closed(tmp_path):
     client = _app(tmp_path)
+    connected = False
     try:
         with client.websocket_connect("/ws/live?client=ghost") as ws:
+            connected = True
             ws.receive_text()
-            assert False, "expected close"
     except Exception:
         pass
+    assert not connected, "expected connection to be rejected"
