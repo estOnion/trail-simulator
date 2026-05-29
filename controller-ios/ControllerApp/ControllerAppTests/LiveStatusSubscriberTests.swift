@@ -15,21 +15,21 @@ final class LiveStatusSubscriberTests: XCTestCase {
 
     func testWebSocketURLBuildsCorrectly() {
         let http = URL(string: "http://192.168.1.5:8787")!
-        XCTAssertEqual(LiveStatusSubscriber.webSocketURL(from: http, deviceName: nil).absoluteString, "ws://192.168.1.5:8787/ws/live")
+        XCTAssertEqual(LiveStatusSubscriber.webSocketURL(from: http, clientId: nil).absoluteString, "ws://192.168.1.5:8787/ws/live")
 
         let https = URL(string: "https://example.com")!
-        XCTAssertEqual(LiveStatusSubscriber.webSocketURL(from: https, deviceName: nil).absoluteString, "wss://example.com/ws/live")
+        XCTAssertEqual(LiveStatusSubscriber.webSocketURL(from: https, clientId: nil).absoluteString, "wss://example.com/ws/live")
     }
 
-    func testWebSocketURLAppendsDeviceQueryParam() {
+    func testWebSocketURLAppendsClientQueryParam() {
         let base = URL(string: "http://192.168.1.5:8080")!
-        let url = LiveStatusSubscriber.webSocketURL(from: base, deviceName: "iPhone 15")
-        XCTAssertEqual(url.absoluteString, "ws://192.168.1.5:8080/ws/live?device=iPhone%2015")
+        let url = LiveStatusSubscriber.webSocketURL(from: base, clientId: "uuid 7")
+        XCTAssertEqual(url.absoluteString, "ws://192.168.1.5:8080/ws/live?client=uuid%207")
     }
 
-    func testWebSocketURLNilDeviceOmitsQueryParam() {
+    func testWebSocketURLNilClientOmitsQueryParam() {
         let base = URL(string: "http://192.168.1.5:8080")!
-        let url = LiveStatusSubscriber.webSocketURL(from: base, deviceName: nil)
+        let url = LiveStatusSubscriber.webSocketURL(from: base, clientId: nil)
         XCTAssertNil(url.query)
     }
 }

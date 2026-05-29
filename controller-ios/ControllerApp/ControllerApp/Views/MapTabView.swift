@@ -51,6 +51,7 @@ private struct MapStatePill: View {
         case .stopping, .reconnecting: return .yellow
         case .error:        return .red
         case .starting:     return .blue
+        case .following:    return .teal
         case .idle:         return .secondary
         case .unknown:      return .secondary
         }
