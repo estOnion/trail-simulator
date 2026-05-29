@@ -3,6 +3,11 @@ import SwiftUI
 struct MapTabView: View {
     @EnvironmentObject var store: SessionStore
     let client: BackendClient
+    @State private var showFollow = false
+
+    private var isFollowing: Bool {
+        store.watchingLeaderId != nil || store.state == .following
+    }
 
     var body: some View {
         NavigationStack {
@@ -13,6 +18,19 @@ struct MapTabView: View {
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
+
+                if isFollowing {
+                    HStack {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                        Text(store.watchingLeaderId != nil ? "Watching a leader" : "Mirroring a leader")
+                            .font(.caption)
+                        Spacer()
+                        Button("Stop") { Task { await stopFollowing() } }
+                            .font(.caption).tint(.red)
+                    }
+                    .padding(.horizontal).padding(.vertical, 6)
+                    .background(.thinMaterial)
+                }
 
                 MapScreen()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -30,7 +48,23 @@ struct MapTabView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     MapStatePill(state: store.state)
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showFollow = true } label: {
+                        Label("Follow", systemImage: "person.2.wave.2")
+                    }
+                }
             }
+            .sheet(isPresented: $showFollow) {
+                FollowSheet(client: client).environmentObject(store)
+            }
+        }
+    }
+
+    private func stopFollowing() async {
+        if store.watchingLeaderId != nil {
+            store.watchingLeaderId = nil
+        } else {
+            try? await client.unfollow()
         }
     }
 }
