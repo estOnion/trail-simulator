@@ -307,6 +307,12 @@ class SessionController:
         unfollow(). Stops any session this controller is currently running."""
         if leader is self:
             raise RuntimeError("cannot follow self")
+        # Tear down any existing follow before registering a new listener,
+        # so re-following (or switching leaders) never orphans a listener.
+        if self._follow_source is not None and self._follow_listener is not None:
+            self._follow_source.remove_listener(self._follow_listener)
+            self._follow_source = None
+            self._follow_listener = None
         if self._state in (
             SessionState.running,
             SessionState.starting,

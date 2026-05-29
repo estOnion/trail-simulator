@@ -55,3 +55,17 @@ async def test_cannot_follow_self(tmp_path):
     c = _controller(tmp_path, "selfc")
     with pytest.raises(RuntimeError):
         await c.follow(c, "Me")
+
+
+@pytest.mark.asyncio
+async def test_refollow_does_not_leak_listener(tmp_path):
+    leader = _controller(tmp_path, "leaderR")
+    follower = _controller(tmp_path, "followerR")
+    await follower.follow(leader, "Leader")
+    await follower.follow(leader, "Leader")  # re-follow without unfollow
+    assert len(leader._listeners) == 1
+
+    leader._current = (10.0, 20.0)
+    await leader._broadcast()
+    # Exactly one mirror -> one point appended for this broadcast.
+    assert follower._device.points.count((10.0, 20.0)) == 1
