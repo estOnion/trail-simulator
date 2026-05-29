@@ -29,6 +29,7 @@ class SessionState(str, Enum):
     stopping = "stopping"
     reconnecting = "reconnecting"
     error = "error"
+    following = "following"
 
 
 @dataclass
@@ -46,6 +47,7 @@ class StatusSnapshot:
     cooldown_remaining_s: float
     steps_sent: int
     step_companions: list[dict]
+    following_leader: str | None = None
 
 
 # Listeners get snapshots pushed to them (WebSocket fan-out lives in api/ws.py).
@@ -69,6 +71,9 @@ class SessionController:
         self._total_m: float = 0.0
         self._last_error: str | None = None
         self._listeners: list[Listener] = []
+        self._follow_source: "SessionController | None" = None
+        self._follow_listener: Listener | None = None
+        self._following_leader: str | None = None
         self._steps_sent: int = 0
         self._step_remainder: float = 0.0
 
@@ -145,6 +150,7 @@ class SessionController:
             cooldown_remaining_s=cd,
             steps_sent=self._steps_sent,
             step_companions=_step_broadcaster.snapshot(),
+            following_leader=self._following_leader,
         )
 
     async def start(
@@ -295,6 +301,48 @@ class SessionController:
             self._last_start_params = None
             self._state = SessionState.idle
             await self._broadcast()
+
+    async def follow(self, leader: "SessionController", leader_label: str) -> None:
+        """Mirror `leader`'s live position onto this controller's device until
+        unfollow(). Stops any session this controller is currently running."""
+        if leader is self:
+            raise RuntimeError("cannot follow self")
+        if self._state in (
+            SessionState.running,
+            SessionState.starting,
+            SessionState.paused,
+            SessionState.reconnecting,
+        ):
+            await self.stop()
+        await self._device.open()
+
+        async def _mirror(snap: StatusSnapshot) -> None:
+            if snap.current_lat is None or snap.current_lon is None:
+                return
+            try:
+                await self._device.set(snap.current_lat, snap.current_lon)
+                self._current = (snap.current_lat, snap.current_lon)
+            except Exception:  # noqa: BLE001
+                pass
+
+        self._follow_source = leader
+        self._follow_listener = _mirror
+        self._following_leader = leader_label
+        leader.add_listener(_mirror)
+        self._state = SessionState.following
+
+        # Seed immediately from the leader's current position.
+        await _mirror(leader.status())
+        await self._broadcast()
+
+    async def unfollow(self) -> None:
+        if self._follow_source is not None and self._follow_listener is not None:
+            self._follow_source.remove_listener(self._follow_listener)
+        self._follow_source = None
+        self._follow_listener = None
+        self._following_leader = None
+        self._state = SessionState.idle
+        await self._broadcast()
 
     async def update_destinations(
         self,
