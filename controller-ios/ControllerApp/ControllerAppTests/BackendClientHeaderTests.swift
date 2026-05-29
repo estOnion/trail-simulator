@@ -75,4 +75,21 @@ final class BackendClientHeaderTests: XCTestCase {
         _ = try? await client.fetchStatus()
         XCTAssertEqual(HeaderRecordingURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Device-Name"), "Jack iPhone")
     }
+
+    func testClientIdHeaderStamped() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [HeaderRecordingURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let client = BackendClient(
+            baseURL: URL(string: "http://localhost:8080")!,
+            deviceName: nil,
+            clientId: "uuid-9",
+            session: session
+        )
+        _ = try? await client.fetchStatus()
+        XCTAssertEqual(
+            HeaderRecordingURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Client-Id"),
+            "uuid-9"
+        )
+    }
 }

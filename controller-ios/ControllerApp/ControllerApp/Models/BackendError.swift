@@ -7,4 +7,5 @@ enum BackendError: Error, Equatable, Sendable {
     case cooldown(CooldownDetail)      // 429 from /api/session
     case routing(String)               // 502 from /api/retarget or /api/speed
     case server(Int, String)           // any other non-2xx with detail
+    case duplicateClientId(String)     // 409 from /api/bind
 }
