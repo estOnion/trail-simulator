@@ -47,7 +47,7 @@ final class SessionStore: ObservableObject {
     // web-UI fix where idle/stopping/error/reconnecting carried stale
     // coordinates from the previous route and would otherwise splice into
     // the new trail.
-    static let activeStates: Set<SessionState> = [.starting, .running, .paused]
+    static let activeStates: Set<SessionState> = [.starting, .running, .paused, .following]
 
     func apply(snapshot: StatusSnapshot) {
         latest = snapshot

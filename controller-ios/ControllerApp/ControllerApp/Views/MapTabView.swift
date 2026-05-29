@@ -37,6 +37,7 @@ struct MapTabView: View {
 
                 VStack(spacing: 10) {
                     SessionControls(client: client)
+                        .disabled(isFollowing)
                     StepCompanionsPanel()
                 }
                 .padding(.horizontal)
