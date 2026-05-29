@@ -223,6 +223,32 @@ In mirror mode only the primary iPhone's DeviceName is registered; all spoofed d
 - *"Multiple devices registered; send X-Device-Name header"*: someone hit a backend endpoint without the header while two or more devices are registered. The web frontend always falls back to the first device; this only affects custom tooling.
 - Two iPhones with the same name: the backend will exit on startup. Rename one in Settings → General → About → Name.
 
+## Per-iPhone UUID identity & following a leader
+
+Each TrailController iPhone carries a **UUID** (Settings → Identity). It defaults
+to the device name and can be edited to any unique string. The app sends it as
+`X-Client-Id` on every request; the backend binds the UUID to the connected
+device and routes that iPhone's session by it, so two phones never share a
+session. (The `X-Device-Name` path above remains as a fallback for the web
+frontend and single-device setups.)
+
+- **Uniqueness:** on Save the app calls `POST /api/bind`; if another device
+  already holds that UUID the backend returns `409` and the change is rejected.
+- **Single device:** the UUID auto-binds — no device picking needed.
+- **Multiple devices:** pick this iPhone in Settings → Device, then save the UUID.
+
+**Following a leader** (Map → Follow button):
+
+- *Watch on map only* — your map shows the leader's live position; your phone is
+  untouched.
+- *Mirror onto this phone (GPS)* — your phone's spoofed GPS tracks the leader's
+  route (`POST /api/follow`). Tap **Stop** to end (`POST /api/unfollow`).
+
+```bash
+curl -H "X-Client-Id: my-uuid" http://127.0.0.1:8080/api/status
+curl http://127.0.0.1:8080/api/clients   # active leaders to follow
+```
+
 ## Home base station (recommended)
 
 Turn a dedicated Mac (mini, iMac, or a docked laptop) into an always-on Trail
