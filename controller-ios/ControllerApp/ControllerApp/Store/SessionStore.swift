@@ -22,6 +22,10 @@ final class SessionStore: ObservableObject {
     // User-controlled connection toggle. Drives the WS lifecycle in RootView.
     @Published var isConnected: Bool = true
 
+    // When set, the Map view watches a leader's live stream instead of this
+    // device's own session (view-only follow). RootView repoints the subscriber.
+    @Published var watchingLeaderId: String? = nil
+
     struct CameraFocus: Equatable {
         let coordinate: CLLocationCoordinate2D
         let id: UUID

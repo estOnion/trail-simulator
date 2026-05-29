@@ -4,19 +4,21 @@ import UIKit
 struct RootView: View {
     @StateObject private var store = SessionStore()
     @EnvironmentObject var health: HealthStore
-    @State private var config: BackendConfig = BackendConfig.loadFromUserDefaults(defaultClientId: UIDevice.current.name)
+    @State private var config: BackendConfig
     @State private var client: BackendClient
     @State private var subscriber = LiveStatusSubscriber()
 
     init() {
         let cfg = BackendConfig.loadFromUserDefaults(defaultClientId: UIDevice.current.name)
         _config = State(initialValue: cfg)
-        _client = State(initialValue: BackendClient(baseURL: cfg.baseURL, deviceName: cfg.deviceName))
+        _client = State(initialValue: BackendClient(
+            baseURL: cfg.baseURL, deviceName: cfg.deviceName, clientId: cfg.clientId))
     }
 
     private struct ConnectionKey: Equatable {
         let url: URL
-        let deviceName: String?
+        let clientId: String
+        let watching: String?
         let connected: Bool
     }
 
@@ -33,15 +35,17 @@ struct RootView: View {
                 .environmentObject(store)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
-        .task(id: ConnectionKey(url: config.baseURL, deviceName: config.deviceName, connected: store.isConnected)) {
+        .task(id: ConnectionKey(url: config.baseURL, clientId: config.clientId,
+                                watching: store.watchingLeaderId, connected: store.isConnected)) {
             await subscriber.cancel()
             health.disconnect()
             await client.updateBaseURL(config.baseURL)
+            await client.updateClientId(config.clientId)
             await client.updateDeviceName(config.deviceName)
             guard store.isConnected else { return }
-            let label = config.deviceName ?? "iPhone"
-            health.connect(baseURL: config.baseURL, label: label)
-            let stream = await subscriber.start(baseURL: config.baseURL, deviceName: config.deviceName)
+            health.connect(baseURL: config.baseURL, label: config.clientId)
+            let effective = store.watchingLeaderId ?? config.clientId
+            let stream = await subscriber.start(baseURL: config.baseURL, clientId: effective)
             for await snap in stream {
                 store.apply(snapshot: snap)
             }
