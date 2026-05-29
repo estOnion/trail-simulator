@@ -54,6 +54,12 @@ def test_status_400_when_ambiguous(tmp_path):
 
 
 def test_status_404_when_name_unknown(tmp_path):
-    client = _make_app(tmp_path, [("UDID-A", "Jack")])
+    client = _make_app(tmp_path, [("UDID-A", "Jack"), ("UDID-B", "Spare")])
     resp = client.get("/api/status", headers={"X-Device-Name": "Ghost"})
     assert resp.status_code == 404
+
+
+def test_status_unknown_name_falls_back_to_single_device(tmp_path):
+    client = _make_app(tmp_path, [("UDID-A", "Jack")])
+    resp = client.get("/api/status", headers={"X-Device-Name": "Ghost"})
+    assert resp.status_code == 200

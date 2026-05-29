@@ -210,9 +210,11 @@ def main() -> int:
               f"devices: {names}")
 
     from .api.ws_steps import broadcaster as _step_broadcaster
-    _step_broadcaster.set_change_callback(
-        lambda: asyncio.gather(*[c._broadcast() for _, c in manager.list_active()])
-    )
+
+    async def _on_step_clients_change() -> None:
+        await asyncio.gather(*[c._broadcast() for _, c in manager.list_active()])
+
+    _step_broadcaster.set_change_callback(_on_step_clients_change)
     app = build_app(manager, registry)
 
     url = f"http://{args.host}:{args.port}/"

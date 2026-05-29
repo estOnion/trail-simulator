@@ -9,6 +9,7 @@ struct MapTabView: View {
             VStack(spacing: 0) {
                 SearchBar(client: client) { coord in
                     store.setPin(at: coord)
+                    store.focusCamera(on: coord)
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)

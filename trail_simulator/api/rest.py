@@ -43,16 +43,15 @@ def build_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter
         device: str | None,
     ) -> SessionController:
         name = x_device_name or device
-        if name is None:
+        udid = registry.resolve(name) if name else None
+        if udid is None:
             udid = registry.default_udid()
-            if udid is None:
+        if udid is None:
+            if name is None:
                 raise HTTPException(
                     status_code=400,
                     detail="Multiple devices registered; send X-Device-Name header.",
                 )
-            return manager.get_or_create(udid)
-        udid = registry.resolve(name)
-        if udid is None:
             raise HTTPException(
                 status_code=404,
                 detail=f"No backend device registered for name {name!r}.",
