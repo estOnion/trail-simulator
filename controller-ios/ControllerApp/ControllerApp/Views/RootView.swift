@@ -1,14 +1,15 @@
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @StateObject private var store = SessionStore()
     @EnvironmentObject var health: HealthStore
-    @State private var config: BackendConfig = BackendConfig.loadFromUserDefaults()
+    @State private var config: BackendConfig = BackendConfig.loadFromUserDefaults(defaultClientId: UIDevice.current.name)
     @State private var client: BackendClient
     @State private var subscriber = LiveStatusSubscriber()
 
     init() {
-        let cfg = BackendConfig.loadFromUserDefaults()
+        let cfg = BackendConfig.loadFromUserDefaults(defaultClientId: UIDevice.current.name)
         _config = State(initialValue: cfg)
         _client = State(initialValue: BackendClient(baseURL: cfg.baseURL, deviceName: cfg.deviceName))
     }
