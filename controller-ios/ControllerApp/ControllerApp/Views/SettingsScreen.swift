@@ -11,6 +11,9 @@ struct SettingsScreen: View {
     @State private var loadingDevices: Bool = false
     @State private var deviceError: String? = nil
     @FocusState private var urlFocused: Bool
+    @State private var clientIdText: String = ""
+    @State private var savingIdentity: Bool = false
+    @State private var identityError: String? = nil
 
     private enum ProbeMessage: Equatable {
         case ok(String)
@@ -50,6 +53,23 @@ struct SettingsScreen: View {
                         Text(m.text)
                             .font(.caption)
                             .foregroundStyle(m.isError ? .red : .secondary)
+                    }
+                }
+
+                Section("Identity (UUID)") {
+                    TextField("This iPhone's UUID", text: $clientIdText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button(savingIdentity ? "Validating…" : "Save UUID") {
+                        urlFocused = false
+                        Task { await saveIdentity() }
+                    }
+                    .disabled(savingIdentity || clientIdText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    if let identityError {
+                        Text(identityError).font(.caption).foregroundStyle(.red)
+                    } else {
+                        Text("Default is your device name. Must be unique across devices.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
@@ -111,7 +131,10 @@ struct SettingsScreen: View {
                     Button("Done") { urlFocused = false }
                 }
             }
-            .onAppear { urlText = config.baseURL.absoluteString }
+            .onAppear {
+                urlText = config.baseURL.absoluteString
+                clientIdText = config.clientId
+            }
             .task { await loadDevices() }
         }
     }
@@ -148,6 +171,39 @@ struct SettingsScreen: View {
         } catch {
             devices = []
             deviceError = "Can't load devices — check the backend URL and connection."
+        }
+    }
+
+    private func saveIdentity() async {
+        let newId = clientIdText.trimmingCharacters(in: .whitespaces)
+        guard !newId.isEmpty else { return }
+        savingIdentity = true
+        identityError = nil
+        defer { savingIdentity = false }
+
+        // Determine which connected device this UUID should bind to.
+        let found = (try? await client.fetchDevices()) ?? []
+        let targetUdid: String?
+        if found.count == 1 {
+            targetUdid = found[0].udid
+        } else {
+            targetUdid = found.first(where: { $0.name == config.deviceName })?.udid
+        }
+        guard let udid = targetUdid else {
+            identityError = "Pick this iPhone in the Device list below first."
+            return
+        }
+
+        do {
+            try await client.bind(clientId: newId, udid: udid)
+            config.clientId = newId
+            config.save()
+            await client.updateClientId(newId)
+            probeMessage = .ok("UUID saved ✓")
+        } catch BackendError.duplicateClientId {
+            identityError = "That UUID is already used by another device — pick a different one."
+        } catch {
+            identityError = "Couldn't validate UUID — check the backend connection."
         }
     }
 
