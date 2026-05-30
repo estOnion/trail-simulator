@@ -58,3 +58,11 @@ class MultiLocationClient:
         for udid, res in zip(self._udids, results):
             if isinstance(res, Exception):
                 log.warning("device %s clear failed: %s", udid, res)
+
+    async def reachable(self) -> bool:
+        # Reachable if any mirrored device is back — enough to resume the fan-out.
+        results = await asyncio.gather(
+            *(c.reachable() for c in self._clients),
+            return_exceptions=True,
+        )
+        return any(r is True for r in results)
