@@ -23,7 +23,7 @@ final class StepClient: ObservableObject {
         return comps?.url
     }
 
-    func connect(baseURL: URL, label: String, onEvent: @escaping (StepEvent) -> Void) {
+    func connect(baseURL: URL, clientId: String, onEvent: @escaping (StepEvent) -> Void) {
         guard let url = Self.stepsURL(from: baseURL) else {
             lastError = "invalid base URL"
             return
@@ -35,7 +35,10 @@ final class StepClient: ObservableObject {
         task?.resume()
 
         Task { @MainActor in
-            let hello: [String: String] = ["type": "hello", "device_label": label, "udid": ""]
+            // client_id is the routing identity (same UUID as X-Client-Id); the
+            // backend resolves it to the bound device so steps reach only this
+            // phone's session. device_label is the human label shown in the UI.
+            let hello: [String: String] = ["type": "hello", "client_id": clientId, "device_label": clientId]
             if let data = try? JSONSerialization.data(withJSONObject: hello),
                let text = String(data: data, encoding: .utf8) {
                 try? await task?.send(.string(text))
