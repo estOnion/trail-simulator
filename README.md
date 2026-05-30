@@ -11,6 +11,7 @@ No jailbreak, no sideloading, no modifications to the iPhone — built on the sa
 - Realistic pedestrian pacing — ≤ 20 km/h speed cap, ≤ 5 m per-tick jump cap
 - 7-day cooldown table for long-distance repositions, persisted in SQLite across restarts
 - **Multi-device mirror mode** — drive several iPhones in lockstep with `--udid` repeated
+- **Rooted Android 12+ support** — spoof a tethered Android phone over `adb` with `--android`, no app on the phone (single backend, mixed with iPhones)
 - **Wi-Fi-only operation** — once paired and `wifi-connections on`, no cable needed
 - **Home base station** mode — install once with `sudo`, then drive the iPhone from a Safari bookmark on the phone. No terminal, no cable, no sudo prompts after install.
 - **Step counter** (built into TrailController) — the Health tab in the TrailController iOS app writes step count + walking distance into HealthKit in sync with the simulated route
@@ -248,6 +249,91 @@ frontend and single-device setups.)
 curl -H "X-Client-Id: my-uuid" http://127.0.0.1:8080/api/status
 curl http://127.0.0.1:8080/api/clients   # active leaders to follow
 ```
+
+## Spoofing a rooted Android phone
+
+The backend can drive a **rooted Android 12+ (API 31+)** phone instead of — or
+alongside — iPhones, all in the same process. It uses Android's built-in
+`cmd location` test-provider shell commands over `adb`, so **nothing is
+installed on the phone**.
+
+> **Experimental.** Validated against a stubbed `adb` in tests, but real-device
+> behaviour depends on your phone. In particular, apps that read **Google Play
+> Services *fused* location** may ignore the test provider even with root (see
+> caveat below). Confirm against your target app before relying on it.
+
+**Requirements**
+
+- A **rooted** Android phone running **Android 12 or newer** (API 31+ — older
+  Android lacks the `set-test-provider-location` shell command).
+- `adb` on your `PATH` (Android platform-tools).
+- **USB debugging** enabled (Settings → Developer options) and the Mac
+  authorized (accept the RSA prompt). Root adb available (`adb root`).
+
+**Run**
+
+1. Connect the phone over USB and confirm it's visible and authorized:
+   ```bash
+   adb devices
+   # List of devices attached
+   # RZ8N1234ABC	device
+   ```
+   A state of `unauthorized` or `offline` must be cleared first (re-accept the
+   on-device prompt, or replug).
+
+2. Start the backend with the phone's serial:
+   ```bash
+   python -m trail_simulator --android RZ8N1234ABC --port 8080
+   ```
+   On startup you'll see `[android] RZ8N1234ABC ready (API 33, Pixel 7)`. When
+   targeting Android only (no `--udid`), the iOS `tunneld` is not required.
+
+3. Open the UI, choose the phone in the **Device** dropdown (labeled
+   `Pixel 7 · android`), plan a route, press **Walk**. **Stop**/**Reset to real
+   GPS** removes the test provider and returns the phone to its real location.
+
+**Mixed iPhone + Android**
+
+Combine `--android` with `--udid` to drive both kinds of device from one
+backend — each runs an independent session:
+
+```bash
+python -m trail_simulator --port 8080 \
+  --udid 00008140-001A2B3C4D5E6F70 \
+  --android RZ8N1234ABC
+```
+
+Both show up in the web Device picker (and in `/api/devices`) tagged `ios` or
+`android`. (`--mirror` is iOS-only and can't be combined with `--android`.)
+
+**How it works**
+
+Per session the backend runs, as root via `su -c`:
+`cmd location providers add-test-provider gps` + `enable-test-provider gps` on
+start, `set-test-provider-location gps --location <lat>,<lon>` each ~1 Hz tick,
+and `remove-test-provider gps` on reset. Auto-reconnect polls `adb get-state`.
+
+**Verify**
+
+```bash
+curl http://127.0.0.1:8080/api/devices
+# {"devices":[{"udid":"RZ8N1234ABC","name":"Pixel 7","bound_client_id":null,"type":"android"}]}
+
+curl -H "X-Device-Name: Pixel 7" http://127.0.0.1:8080/api/status
+# {"state":"idle", ...}
+```
+
+**Troubleshooting**
+
+- *`[android] <serial> not online via adb`*: the serial isn't in `adb devices`
+  with state `device`. Replug, re-accept the USB-debugging prompt, or run
+  `adb kill-server && adb start-server`.
+- *`[android] <serial> is API N; need Android 12+`*: app-free injection needs
+  API 31+. Older phones would require an on-phone helper (not implemented).
+- *Route plays in the UI but the phone's apps don't move*: usually a Google Play
+  Services *fused*-location app ignoring the test provider. Confirm root is
+  active (`adb root`), and that a generic maps app *does* follow the route to
+  isolate whether it's the provider or the specific app.
 
 ## Home base station (recommended)
 
