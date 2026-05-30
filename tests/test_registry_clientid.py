@@ -66,6 +66,32 @@ def test_auto_bind_single_none_when_already_bound_to_other():
     assert r.auto_bind_single("intruder") is None
 
 
+def test_force_bind_takes_over_device_from_another_client():
+    r = _reg(("UDID-A", "Jack"))
+    r.bind("jack", "UDID-A")
+    r.force_bind("anna", "UDID-A")
+    assert r.resolve_client("anna") == "UDID-A"
+    assert r.client_for("UDID-A") == "anna"
+    assert r.resolve_client("jack") is None
+
+
+def test_force_bind_moves_client_off_its_old_device():
+    r = _reg(("UDID-A", "Jack"), ("UDID-B", "Spare"))
+    r.bind("jack", "UDID-A")
+    r.force_bind("jack", "UDID-B")
+    assert r.resolve_client("jack") == "UDID-B"
+    assert r.client_for("UDID-A") is None
+    assert r.client_for("UDID-B") == "jack"
+
+
+def test_force_bind_idempotent():
+    r = _reg(("UDID-A", "Jack"))
+    r.bind("jack", "UDID-A")
+    r.force_bind("jack", "UDID-A")
+    assert r.resolve_client("jack") == "UDID-A"
+    assert r.client_for("UDID-A") == "jack"
+
+
 def test_list_clients():
     r = _reg(("UDID-A", "Jack"), ("UDID-B", "Spare"))
     r.bind("uuid-1", "UDID-A")

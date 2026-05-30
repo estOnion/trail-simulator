@@ -92,6 +92,20 @@ class DeviceRegistry:
         self._client_to_udid[client_id] = udid
         self._udid_to_client[udid] = client_id
 
+    def force_bind(self, client_id: str, udid: str) -> None:
+        """Operator takeover: reassign `udid` to `client_id`, evicting whatever
+        client currently holds the device and detaching `client_id` from any
+        device it previously held. Backend-only (not exposed to the phone app);
+        the regular bind() refuses collisions."""
+        old_client = self._udid_to_client.get(udid)
+        if old_client is not None and old_client != client_id:
+            self._client_to_udid.pop(old_client, None)
+        old_udid = self._client_to_udid.get(client_id)
+        if old_udid is not None and old_udid != udid:
+            self._udid_to_client.pop(old_udid, None)
+        self._client_to_udid[client_id] = udid
+        self._udid_to_client[udid] = client_id
+
     def resolve_client(self, client_id: str) -> str | None:
         return self._client_to_udid.get(client_id)
 

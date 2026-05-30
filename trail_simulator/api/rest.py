@@ -137,6 +137,19 @@ def build_router(
             raise HTTPException(status_code=409, detail=str(e))
         return {"ok": True}
 
+    @r.post("/rebind")
+    async def rebind(req: BindReq):
+        """Operator takeover (backend/web-admin only — not used by the phone
+        app): force-reassign a device to a new client UUID, evicting the
+        previous binding."""
+        if registry.name_for(req.udid) is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No connected device with udid {req.udid!r}.",
+            )
+        registry.force_bind(req.client_id, req.udid)
+        return {"ok": True}
+
     @r.post("/follow")
     async def follow(req: FollowReq):
         f_udid = registry.resolve_client(req.follower_client_id)

@@ -60,6 +60,19 @@
       <div id="step-companions" class="step-companions"></div>
       <div id="error" class="err"></div>
     </section>
+
+    <details class="admin">
+      <summary><strong>Admin: device bindings</strong></summary>
+      <p class="hint">Force-reassign a device to a client UUID, evicting the
+        current owner. Backend-only — phones can't do this.</p>
+      <div id="binding-list" class="binding-list"></div>
+      <div class="row admin-rebind">
+        <select id="rebind-device"></select>
+        <input id="rebind-client" type="text" placeholder="client UUID" autocomplete="off" />
+        <button id="rebind-btn" type="button">Take over</button>
+      </div>
+      <div id="admin-msg" class="hint"></div>
+    </details>
   </aside>
 
   <div id="map"></div>

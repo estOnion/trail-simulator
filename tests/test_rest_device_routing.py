@@ -90,6 +90,23 @@ def test_bind_409_when_device_owned_by_other_client(tmp_path):
     assert client.get("/api/status", headers={"X-Client-Id": "jack"}).status_code == 200
 
 
+def test_rebind_takes_over_device(tmp_path):
+    client = _make_app(tmp_path, [("UDID-A", "Jack")])
+    assert client.post("/api/bind", json={"client_id": "jack", "udid": "UDID-A"}).status_code == 200
+    # Operator takeover: anna reclaims the device that jack held.
+    assert client.post("/api/rebind", json={"client_id": "anna", "udid": "UDID-A"}).status_code == 200
+    assert client.get("/api/status", headers={"X-Client-Id": "anna"}).status_code == 200
+    # Jack is now unbound — with two? no, single device, so jack auto-binds elsewhere is N/A.
+    assert client.get("/api/clients").json()["clients"] == [
+        {"client_id": "anna", "name": "Jack", "state": "idle"}
+    ]
+
+
+def test_rebind_unknown_udid_404(tmp_path):
+    client = _make_app(tmp_path, [("UDID-A", "Jack")])
+    assert client.post("/api/rebind", json={"client_id": "anna", "udid": "GHOST"}).status_code == 404
+
+
 def test_devices_includes_type(tmp_path):
     store = Store(path=tmp_path / "s.db")
     registry = DeviceRegistry()
