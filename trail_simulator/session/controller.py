@@ -584,16 +584,15 @@ class SessionController:
             self._reconnect_task = asyncio.create_task(self._auto_resume())
 
     async def _auto_resume(self) -> None:
-        """Poll tunneld until reachable, then restart the session from the last fix."""
-        from ..device.tunneld import tunneld_reachable
-
+        """Poll the device until reachable, then restart the session from the
+        last fix. Device-agnostic: iOS polls tunneld, Android polls adb."""
         self._state = SessionState.reconnecting
         await self._broadcast()
 
         try:
             while True:
                 await asyncio.sleep(5.0)
-                if tunneld_reachable():
+                if await self._device.reachable():
                     break
         except asyncio.CancelledError:
             self._state = SessionState.idle
