@@ -5,12 +5,11 @@ import logging
 from typing import Any
 
 from ..config import SETTINGS
+from .injector import DeviceUnavailable
 
 log = logging.getLogger(__name__)
 
-
-class DeviceUnavailable(RuntimeError):
-    pass
+__all__ = ["DeviceUnavailable", "LocationClient"]
 
 
 class LocationClient:
@@ -40,6 +39,11 @@ class LocationClient:
             if self._loc is not None:
                 return
             await self._connect()
+
+    async def reachable(self) -> bool:
+        """Whether the iOS device tunnel is up. Used by auto-resume polling."""
+        from .tunneld import tunneld_reachable
+        return tunneld_reachable()
 
     async def _connect(self) -> None:
         from pymobiledevice3.services.dvt.instruments.dvt_provider import (
