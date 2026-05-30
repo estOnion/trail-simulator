@@ -14,6 +14,10 @@ class DuplicateClientIdError(RuntimeError):
     """Another device already registered this client UUID."""
 
 
+class DeviceAlreadyBoundError(RuntimeError):
+    """This device (UDID) is already controlled by another client UUID."""
+
+
 class DeviceRegistry:
     """In-memory map from human DeviceName to iPhone UDID.
 
@@ -64,7 +68,9 @@ class DeviceRegistry:
             )
         old = self._udid_to_client.get(udid)
         if old is not None and old != client_id:
-            self._client_to_udid.pop(old, None)
+            raise DeviceAlreadyBoundError(
+                f"device {udid!r} is already controlled by another client."
+            )
         self._client_to_udid[client_id] = udid
         self._udid_to_client[udid] = client_id
 

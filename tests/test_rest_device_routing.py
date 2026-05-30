@@ -65,6 +65,15 @@ def test_status_unknown_name_falls_back_to_single_device(tmp_path):
     assert resp.status_code == 200
 
 
+def test_bind_409_when_device_owned_by_other_client(tmp_path):
+    client = _make_app(tmp_path, [("UDID-A", "Jack")])
+    assert client.post("/api/bind", json={"client_id": "jack", "udid": "UDID-A"}).status_code == 200
+    resp = client.post("/api/bind", json={"client_id": "anna", "udid": "UDID-A"})
+    assert resp.status_code == 409
+    # The first binding is intact: Jack still routes to the device.
+    assert client.get("/api/status", headers={"X-Client-Id": "jack"}).status_code == 200
+
+
 def test_devices_includes_type(tmp_path):
     store = Store(path=tmp_path / "s.db")
     registry = DeviceRegistry()
