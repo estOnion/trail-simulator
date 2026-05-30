@@ -44,6 +44,24 @@ class DeviceRegistry:
         self._by_udid[udid] = name
         self._type_by_udid[udid] = device_type
 
+    def sync(self, discovered: list[tuple[str, str, str]]) -> None:
+        """Reconcile the registry against the currently-connected devices.
+
+        `discovered` is a list of (udid, name, device_type). Devices that
+        appeared are added; renamed devices are updated; devices that vanished
+        are dropped along with any client binding they held (so a reconnecting
+        phone with the same UUID can re-bind, and a stale binding never routes
+        to a gone device)."""
+        present = {udid for udid, _, _ in discovered}
+
+        self._by_name = {name: udid for udid, name, _ in discovered}
+        self._by_udid = {udid: name for udid, name, _ in discovered}
+        self._type_by_udid = {udid: dtype for udid, _, dtype in discovered}
+
+        for udid in [u for u in self._udid_to_client if u not in present]:
+            client_id = self._udid_to_client.pop(udid)
+            self._client_to_udid.pop(client_id, None)
+
     def type_for(self, udid: str) -> str:
         """Device type ('ios' / 'android'). Defaults to 'ios' for unknown keys."""
         return self._type_by_udid.get(udid, "ios")
