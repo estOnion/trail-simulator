@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from typing import Awaitable, Callable
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -53,7 +54,14 @@ class UnfollowReq(BaseModel):
     client_id: str = Field(..., min_length=1)
 
 
-def build_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter:
+Discoverer = Callable[[], Awaitable[list[tuple[str, str, str]]]]
+
+
+def build_router(
+    manager: SessionManager,
+    registry: DeviceRegistry,
+    discover: Discoverer | None = None,
+) -> APIRouter:
     r = APIRouter()
 
     def _resolve(
@@ -93,6 +101,8 @@ def build_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter
 
     @r.get("/devices")
     async def list_devices():
+        if discover is not None:
+            registry.sync(await discover())
         return {
             "devices": [
                 {
