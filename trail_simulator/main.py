@@ -23,6 +23,7 @@ from .device.android_location import AndroidLocationClient
 from .device.developer_mode import preflight
 from .device.location import LocationClient
 from .device.multi_location import MultiLocationClient
+from .device.discovery import discover_connected, discover_ios
 from .device.registry import DeviceRegistry, fetch_device_name
 from .device.tunneld import start_instructions, tunneld_reachable
 from .session.controller import SessionController
@@ -60,7 +61,7 @@ def _make_device_factory(android_serials: set[str]):
     return _factory
 
 
-def build_app(manager: SessionManager, registry: DeviceRegistry) -> FastAPI:
+def build_app(manager: SessionManager, registry: DeviceRegistry, discover=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
@@ -72,7 +73,7 @@ def build_app(manager: SessionManager, registry: DeviceRegistry) -> FastAPI:
                 pass
 
     app = FastAPI(title="Trail Simulator", lifespan=lifespan)
-    app.include_router(build_router(manager, registry), prefix="/api")
+    app.include_router(build_router(manager, registry, discover=discover), prefix="/api")
     app.include_router(build_ws_router(manager, registry))
     app.include_router(build_ws_steps_router())
 
@@ -120,8 +121,9 @@ def main() -> int:
         "--udid",
         action="append",
         default=None,
-        help="Target a specific iPhone by UDID. Repeat to mirror to multiple devices "
-             "(e.g., --udid AAA --udid BBB). With no --udid, exactly one device must be connected.",
+        help="Restrict to specific iPhone UDID(s) as an allow-list (repeat for "
+             "several). With no --udid, every connected iPhone is discovered "
+             "dynamically and more may connect while the backend runs.",
     )
     parser.add_argument(
         "--android",
@@ -173,14 +175,14 @@ def main() -> int:
         # --udid, run Android-only and skip the iOS tunnel entirely.
         ios_in_play = bool(requested_udids) or not android_serials
         if ios_in_play:
-            if not requested_udids:
-                pf = preflight(udid=None)
-                print(f"[preflight] {pf.message}")
-                if not pf.ok:
-                    print("[preflight] FAILED — fix above, or run with --dev-no-device to preview the UI.", file=sys.stderr)
-                    return 2
-                resolved_udids = [pf.udid]
-            else:
+            if not tunneld_reachable():
+                print("[tunneld] NOT RUNNING", file=sys.stderr)
+                print(start_instructions(), file=sys.stderr)
+                return 3
+            print("[tunneld] reachable at 127.0.0.1:49151")
+
+            if requested_udids:
+                # Explicit allow-list: validate each requested device up front.
                 for u in requested_udids:
                     pf = preflight(udid=u)
                     print(f"[preflight] {pf.message}")
@@ -188,12 +190,17 @@ def main() -> int:
                         print("[preflight] FAILED — fix above, or run with --dev-no-device to preview the UI.", file=sys.stderr)
                         return 2
                 resolved_udids = list(requested_udids)
-
-            if not tunneld_reachable():
-                print("[tunneld] NOT RUNNING", file=sys.stderr)
-                print(start_instructions(), file=sys.stderr)
-                return 3
-            print("[tunneld] reachable at 127.0.0.1:49151")
+            else:
+                # Dynamic mode: register whatever iPhones are connected now.
+                # Zero is fine — devices that connect later appear in the app's
+                # device list (discovered on-demand via /api/devices).
+                discovered = asyncio.run(discover_ios())
+                resolved_udids = [u for u, _ in discovered]
+                if discovered:
+                    print("[devices] discovered: " + ", ".join(n for _, n in discovered))
+                else:
+                    print("[devices] no iPhone connected yet — connect one and it "
+                          "will appear in the app's device list.")
 
         # Android preflight: each serial must be online and API >= 31.
         if android_serials:
@@ -273,7 +280,21 @@ def main() -> int:
         await asyncio.gather(*[c._broadcast() for _, c in manager.list_active()])
 
     _step_broadcaster.set_change_callback(_on_step_clients_change)
-    app = build_app(manager, registry)
+    _step_broadcaster.set_registry(registry)
+
+    # On-demand discovery for /api/devices: refresh the registry from the
+    # live USB/adb device set each time the app asks. An explicit --udid /
+    # --android allow-list (if given) filters what surfaces. Disabled for the
+    # stub and legacy mirror modes, which manage their own fixed registry.
+    discover = None
+    if not args.dev_no_device and not (args.mirror and len(resolved_udids) > 1):
+        allow = set(requested_udids) | set(android_serials)
+
+        async def discover():
+            devs = await discover_connected()
+            return [d for d in devs if not allow or d[0] in allow]
+
+    app = build_app(manager, registry, discover=discover)
 
     url = f"http://{args.host}:{args.port}/"
     if not args.no_browser:

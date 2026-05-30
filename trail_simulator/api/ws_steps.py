@@ -18,6 +18,7 @@ _HELLO_TIMEOUT_S = 5.0
 class StepClient:
     ws: WebSocket
     label: str
+    client_uuid: str | None
     udid: str | None
     connected_at: float
     last_heartbeat_at: float
@@ -28,9 +29,20 @@ class StepFanout:
     def __init__(self) -> None:
         self._clients: dict[str, StepClient] = {}
         self._change_cb = None
+        self._registry = None
 
     def set_change_callback(self, cb) -> None:
         self._change_cb = cb
+
+    def set_registry(self, registry) -> None:
+        self._registry = registry
+
+    def _udid_for(self, client: StepClient) -> str | None:
+        """Resolve a companion to its device UDID at call time, so binding the
+        device after the companion connected still routes steps correctly."""
+        if self._registry is not None and client.client_uuid is not None:
+            return self._registry.resolve_client(client.client_uuid)
+        return client.udid
 
     def _fire_change(self) -> None:
         if self._change_cb is None:
@@ -40,8 +52,10 @@ class StepFanout:
         except RuntimeError:
             pass
 
-    def has_clients(self) -> bool:
-        return bool(self._clients)
+    def has_clients(self, udid: str | None = None) -> bool:
+        if udid is None:
+            return bool(self._clients)
+        return any(self._udid_for(c) == udid for c in self._clients.values())
 
     def _register(self, client_id: str, client: StepClient) -> None:
         self._clients[client_id] = client
@@ -51,27 +65,34 @@ class StepFanout:
         if self._clients.pop(client_id, None) is not None:
             self._fire_change()
 
-    async def send(self, payload: dict) -> None:
-        if not self._clients:
+    async def send(self, payload: dict, udid: str | None = None) -> None:
+        targets = [
+            (cid, c)
+            for cid, c in self._clients.items()
+            if udid is None or self._udid_for(c) == udid
+        ]
+        if not targets:
             return
         failed = []
         results = await asyncio.gather(
-            *[c.ws.send_json(payload) for c in self._clients.values()],
+            *[c.ws.send_json(payload) for _, c in targets],
             return_exceptions=True,
         )
-        for client_id, result in zip(list(self._clients), results):
+        for (client_id, _), result in zip(targets, results):
             if isinstance(result, Exception):
                 log.warning("step companion %s send failed — removing", client_id)
                 failed.append(client_id)
         for client_id in failed:
             self._remove(client_id)
 
-    def snapshot(self) -> list[dict]:
+    def snapshot(self, udid: str | None = None) -> list[dict]:
         out = []
         for c in self._clients.values():
+            if udid is not None and self._udid_for(c) != udid:
+                continue
             out.append({
                 "label": c.label,
-                "udid": c.udid,
+                "udid": self._udid_for(c),
                 "connected_at_iso": datetime.fromtimestamp(c.connected_at, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "last_heartbeat_iso": datetime.fromtimestamp(c.last_heartbeat_at, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "total_acked": c.total_acked,
@@ -88,31 +109,33 @@ def build_ws_steps_router() -> APIRouter:
     @r.websocket("/ws/steps")
     async def ws_steps(ws: WebSocket):
         await ws.accept()
-        client_id = uuid.uuid4().hex[:8]
+        conn_id = uuid.uuid4().hex[:8]
 
-        label = f"device-{client_id}"
+        label = f"device-{conn_id}"
+        client_uuid: str | None = None
         udid: str | None = None
         try:
             raw = await asyncio.wait_for(ws.receive_text(), timeout=_HELLO_TIMEOUT_S)
             import json
             msg = json.loads(raw)
             if msg.get("type") == "hello":
-                label = msg.get("device_label") or label
+                client_uuid = msg.get("client_id") or None
+                label = msg.get("device_label") or client_uuid or label
                 udid = msg.get("udid") or None
         except (asyncio.TimeoutError, Exception):
             pass
 
-        now = time.monotonic()
         client = StepClient(
             ws=ws,
             label=label,
+            client_uuid=client_uuid,
             udid=udid,
             connected_at=time.time(),
             last_heartbeat_at=time.time(),
             total_acked=0,
         )
-        broadcaster._register(client_id, client)
-        log.info("step companion connected: %s (%s)", label, client_id)
+        broadcaster._register(conn_id, client)
+        log.info("step companion connected: %s (%s) client=%s", label, conn_id, client_uuid)
 
         try:
             while True:
@@ -130,7 +153,7 @@ def build_ws_steps_router() -> APIRouter:
         except Exception:
             pass
         finally:
-            broadcaster._remove(client_id)
-            log.info("step companion disconnected: %s (%s)", label, client_id)
+            broadcaster._remove(conn_id)
+            log.info("step companion disconnected: %s (%s)", label, conn_id)
 
     return r

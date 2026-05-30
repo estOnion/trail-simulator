@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from typing import Awaitable, Callable
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from ..device.registry import DeviceRegistry, DuplicateClientIdError
+from ..device.registry import (
+    DeviceAlreadyBoundError,
+    DeviceRegistry,
+    DuplicateClientIdError,
+)
 from ..geocode import GeocodeError, search as geocode_search
 from ..routing.osrm import RouteError
 from ..session.controller import SessionController
@@ -49,7 +54,14 @@ class UnfollowReq(BaseModel):
     client_id: str = Field(..., min_length=1)
 
 
-def build_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter:
+Discoverer = Callable[[], Awaitable[list[tuple[str, str, str]]]]
+
+
+def build_router(
+    manager: SessionManager,
+    registry: DeviceRegistry,
+    discover: Discoverer | None = None,
+) -> APIRouter:
     r = APIRouter()
 
     def _resolve(
@@ -89,6 +101,8 @@ def build_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter
 
     @r.get("/devices")
     async def list_devices():
+        if discover is not None:
+            registry.sync(await discover())
         return {
             "devices": [
                 {
@@ -119,8 +133,21 @@ def build_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter
             )
         try:
             registry.bind(req.client_id, req.udid)
-        except DuplicateClientIdError as e:
+        except (DuplicateClientIdError, DeviceAlreadyBoundError) as e:
             raise HTTPException(status_code=409, detail=str(e))
+        return {"ok": True}
+
+    @r.post("/rebind")
+    async def rebind(req: BindReq):
+        """Operator takeover (backend/web-admin only — not used by the phone
+        app): force-reassign a device to a new client UUID, evicting the
+        previous binding."""
+        if registry.name_for(req.udid) is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No connected device with udid {req.udid!r}.",
+            )
+        registry.force_bind(req.client_id, req.udid)
         return {"ok": True}
 
     @r.post("/follow")

@@ -43,7 +43,7 @@ struct RootView: View {
             await client.updateClientId(config.clientId)
             await client.updateDeviceName(config.deviceName)
             guard store.isConnected else { return }
-            health.connect(baseURL: config.baseURL, label: config.clientId)
+            health.connect(baseURL: config.baseURL, clientId: config.clientId)
             let effective = store.watchingLeaderId ?? config.clientId
             let stream = await subscriber.start(baseURL: config.baseURL, clientId: effective)
             for await snap in stream {
