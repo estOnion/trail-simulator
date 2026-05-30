@@ -18,6 +18,8 @@ from .api.rest import build_router
 from .api.ws import build_ws_router
 from .api.ws_steps import build_ws_steps_router
 from .config import FRONTEND_DIR, SETTINGS
+from .device.android import android_sdk_int, list_android_devices
+from .device.android_location import AndroidLocationClient
 from .device.developer_mode import preflight
 from .device.location import LocationClient
 from .device.multi_location import MultiLocationClient
@@ -43,6 +45,19 @@ class _StubLocation(LocationClient):
 
     async def clear(self) -> None:
         log.info("[stub] device clear()")
+
+
+def _make_device_factory(android_serials: set[str]):
+    """Dispatch each opaque device key to the right adapter: ADB serials in
+    `android_serials` → AndroidLocationClient, everything else → iOS."""
+    android = set(android_serials)
+
+    def _factory(key: str):
+        if key in android:
+            return AndroidLocationClient(key)
+        return LocationClient(udid=key)
+
+    return _factory
 
 
 def build_app(manager: SessionManager, registry: DeviceRegistry) -> FastAPI:
@@ -109,6 +124,14 @@ def main() -> int:
              "(e.g., --udid AAA --udid BBB). With no --udid, exactly one device must be connected.",
     )
     parser.add_argument(
+        "--android",
+        action="append",
+        default=None,
+        help="Target a rooted Android 12+ phone by adb serial (see `adb devices`). "
+             "Repeat for multiple. Injects GPS via `cmd location` over adb — no app "
+             "on the phone. Can be combined with --udid for a mixed device set.",
+    )
+    parser.add_argument(
         "--mirror",
         action="store_true",
         help="Mirror one session across all --udid devices (legacy fan-out). "
@@ -136,30 +159,62 @@ def main() -> int:
         )
 
     requested_udids: list[str] = list(args.udid) if args.udid else []
+    android_serials: list[str] = list(args.android) if args.android else []
     resolved_udids: list[str | None] = []
+    android_devices: list[tuple[str, str]] = []  # (serial, model name)
+
+    if args.mirror and android_serials:
+        print("[error] --mirror is iOS-only and can't be combined with --android.",
+              file=sys.stderr)
+        return 2
 
     if not args.dev_no_device:
-        if not requested_udids:
-            pf = preflight(udid=None)
-            print(f"[preflight] {pf.message}")
-            if not pf.ok:
-                print("[preflight] FAILED — fix above, or run with --dev-no-device to preview the UI.", file=sys.stderr)
-                return 2
-            resolved_udids = [pf.udid]
-        else:
-            for u in requested_udids:
-                pf = preflight(udid=u)
+        # iOS preflight only when iPhones are in play. With --android and no
+        # --udid, run Android-only and skip the iOS tunnel entirely.
+        ios_in_play = bool(requested_udids) or not android_serials
+        if ios_in_play:
+            if not requested_udids:
+                pf = preflight(udid=None)
                 print(f"[preflight] {pf.message}")
                 if not pf.ok:
                     print("[preflight] FAILED — fix above, or run with --dev-no-device to preview the UI.", file=sys.stderr)
                     return 2
-            resolved_udids = list(requested_udids)
+                resolved_udids = [pf.udid]
+            else:
+                for u in requested_udids:
+                    pf = preflight(udid=u)
+                    print(f"[preflight] {pf.message}")
+                    if not pf.ok:
+                        print("[preflight] FAILED — fix above, or run with --dev-no-device to preview the UI.", file=sys.stderr)
+                        return 2
+                resolved_udids = list(requested_udids)
 
-        if not tunneld_reachable():
-            print("[tunneld] NOT RUNNING", file=sys.stderr)
-            print(start_instructions(), file=sys.stderr)
-            return 3
-        print("[tunneld] reachable at 127.0.0.1:49151")
+            if not tunneld_reachable():
+                print("[tunneld] NOT RUNNING", file=sys.stderr)
+                print(start_instructions(), file=sys.stderr)
+                return 3
+            print("[tunneld] reachable at 127.0.0.1:49151")
+
+        # Android preflight: each serial must be online and API >= 31.
+        if android_serials:
+            try:
+                online = dict(asyncio.run(list_android_devices()))
+            except Exception as e:  # noqa: BLE001
+                print(f"[android] adb error: {e}", file=sys.stderr)
+                return 2
+            for serial in android_serials:
+                if serial not in online:
+                    avail = ", ".join(online) or "none"
+                    print(f"[android] {serial} not online via adb (available: {avail}).",
+                          file=sys.stderr)
+                    return 2
+                sdk = asyncio.run(android_sdk_int(serial))
+                if sdk < 31:
+                    print(f"[android] {serial} is API {sdk}; need Android 12+ (API 31) "
+                          "for app-free `cmd location` injection.", file=sys.stderr)
+                    return 2
+                android_devices.append((serial, online[serial]))
+                print(f"[android] {serial} ready (API {sdk}, {online[serial]})")
     else:
         print("[preflight] SKIPPED (--dev-no-device) — GPS injection is stubbed.")
         resolved_udids = [requested_udids[0] if requested_udids else None]
@@ -190,8 +245,8 @@ def main() -> int:
         manager = SessionManager(device_factory=_factory, store=store)
         print(f"[devices] mirror mode active for {len(resolved_udids)} devices")
     else:
-        # Default: one SessionController per UDID. Build the registry by
-        # asking each device for its DeviceName.
+        # Default: one SessionController per device (iOS + Android), parallel.
+        # iOS devices are named from lockdown DeviceName; Android from getprop.
         for u in resolved_udids:
             if u is None:
                 continue
@@ -201,13 +256,16 @@ def main() -> int:
                 log.warning("could not read DeviceName for %s, using UDID: %s", u, e)
                 name = u
             registry.register(udid=u, name=name)
-        def _factory(udid):
-            return LocationClient(udid=udid)
-        manager = SessionManager(device_factory=_factory, store=store)
-    if len(resolved_udids) > 1 and not args.mirror:
+        for serial, name in android_devices:
+            registry.register(udid=serial, name=name, device_type="android")
+        manager = SessionManager(
+            device_factory=_make_device_factory({s for s, _ in android_devices}),
+            store=store,
+        )
+    total = len([u for u in resolved_udids if u is not None]) + len(android_devices)
+    if total > 1 and not args.mirror:
         names = ", ".join(n for _, n in registry.list_devices())
-        print(f"[devices] parallel session mode for {len(resolved_udids)} "
-              f"devices: {names}")
+        print(f"[devices] parallel session mode for {total} devices: {names}")
 
     from .api.ws_steps import broadcaster as _step_broadcaster
 

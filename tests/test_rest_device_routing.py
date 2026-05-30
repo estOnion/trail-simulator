@@ -63,3 +63,17 @@ def test_status_unknown_name_falls_back_to_single_device(tmp_path):
     client = _make_app(tmp_path, [("UDID-A", "Jack")])
     resp = client.get("/api/status", headers={"X-Device-Name": "Ghost"})
     assert resp.status_code == 200
+
+
+def test_devices_includes_type(tmp_path):
+    store = Store(path=tmp_path / "s.db")
+    registry = DeviceRegistry()
+    registry.register(udid="UDID-A", name="Jack iPhone")
+    registry.register(udid="SER-1", name="Pixel 7", device_type="android")
+    manager = SessionManager(device_factory=lambda u: _StubDevice(), store=store)
+    app = FastAPI()
+    app.include_router(build_router(manager, registry), prefix="/api")
+    body = TestClient(app).get("/api/devices").json()
+    by_name = {d["name"]: d for d in body["devices"]}
+    assert by_name["Jack iPhone"]["type"] == "ios"
+    assert by_name["Pixel 7"]["type"] == "android"

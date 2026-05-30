@@ -28,8 +28,9 @@ class DeviceRegistry:
         self._by_udid: dict[str, str] = {}
         self._client_to_udid: dict[str, str] = {}
         self._udid_to_client: dict[str, str] = {}
+        self._type_by_udid: dict[str, str] = {}
 
-    def register(self, udid: str, name: str) -> None:
+    def register(self, udid: str, name: str, device_type: str = "ios") -> None:
         if name in self._by_name and self._by_name[name] != udid:
             raise DuplicateDeviceNameError(
                 f"Two iPhones share the name {name!r}. Rename one in "
@@ -37,6 +38,11 @@ class DeviceRegistry:
             )
         self._by_name[name] = udid
         self._by_udid[udid] = name
+        self._type_by_udid[udid] = device_type
+
+    def type_for(self, udid: str) -> str:
+        """Device type ('ios' / 'android'). Defaults to 'ios' for unknown keys."""
+        return self._type_by_udid.get(udid, "ios")
 
     def resolve(self, name: str) -> str | None:
         return self._by_name.get(name)

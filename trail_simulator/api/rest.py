@@ -91,7 +91,12 @@ def build_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter
     async def list_devices():
         return {
             "devices": [
-                {"udid": u, "name": n, "bound_client_id": registry.client_for(u)}
+                {
+                    "udid": u,
+                    "name": n,
+                    "bound_client_id": registry.client_for(u),
+                    "type": registry.type_for(u),
+                }
                 for u, n in registry.list_devices()
             ]
         }
