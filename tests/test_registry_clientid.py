@@ -1,6 +1,10 @@
 # tests/test_registry_clientid.py
 import pytest
-from trail_simulator.device.registry import DeviceRegistry, DuplicateClientIdError
+from trail_simulator.device.registry import (
+    DeviceAlreadyBoundError,
+    DeviceRegistry,
+    DuplicateClientIdError,
+)
 
 
 def _reg(*pairs):
@@ -32,13 +36,17 @@ def test_duplicate_client_id_on_other_udid_raises():
         r.bind("uuid-1", "UDID-B")
 
 
-def test_rebinding_udid_releases_old_client():
+def test_bind_udid_owned_by_other_client_raises():
+    # A second phone must not silently steal a device already bound to
+    # another client — that is the multi-device override bug.
     r = _reg(("UDID-A", "Jack"))
-    r.bind("old", "UDID-A")
-    r.bind("new", "UDID-A")
-    assert r.resolve_client("old") is None
-    assert r.resolve_client("new") == "UDID-A"
-    assert r.client_for("UDID-A") == "new"
+    r.bind("jack", "UDID-A")
+    with pytest.raises(DeviceAlreadyBoundError):
+        r.bind("anna", "UDID-A")
+    # Jack keeps the device.
+    assert r.resolve_client("jack") == "UDID-A"
+    assert r.client_for("UDID-A") == "jack"
+    assert r.resolve_client("anna") is None
 
 
 def test_auto_bind_single():

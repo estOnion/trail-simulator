@@ -5,7 +5,11 @@ from dataclasses import asdict
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from ..device.registry import DeviceRegistry, DuplicateClientIdError
+from ..device.registry import (
+    DeviceAlreadyBoundError,
+    DeviceRegistry,
+    DuplicateClientIdError,
+)
 from ..geocode import GeocodeError, search as geocode_search
 from ..routing.osrm import RouteError
 from ..session.controller import SessionController
@@ -119,7 +123,7 @@ def build_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter
             )
         try:
             registry.bind(req.client_id, req.udid)
-        except DuplicateClientIdError as e:
+        except (DuplicateClientIdError, DeviceAlreadyBoundError) as e:
             raise HTTPException(status_code=409, detail=str(e))
         return {"ok": True}
 
