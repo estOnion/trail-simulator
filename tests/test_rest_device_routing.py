@@ -34,6 +34,22 @@ def test_get_devices_lists_registered(tmp_path):
     assert names == ["Jack iPhone", "Spare"]
 
 
+def test_get_devices_runs_on_demand_discovery(tmp_path):
+    store = Store(path=tmp_path / "s.db")
+    registry = DeviceRegistry()  # starts empty — nothing registered at launch
+
+    async def discover():
+        return [("UDID-A", "Jack", "ios"), ("SER-1", "Pixel", "android")]
+
+    manager = SessionManager(device_factory=lambda u: _StubDevice(), store=store)
+    app = FastAPI()
+    app.include_router(build_router(manager, registry, discover=discover), prefix="/api")
+    body = TestClient(app).get("/api/devices").json()
+    by_name = {d["name"]: d for d in body["devices"]}
+    assert by_name["Jack"]["type"] == "ios"
+    assert by_name["Pixel"]["type"] == "android"
+
+
 def test_status_routes_by_header(tmp_path):
     client = _make_app(tmp_path, [("UDID-A", "Jack"), ("UDID-B", "Spare")])
     resp = client.get("/api/status", headers={"X-Device-Name": "Jack"})

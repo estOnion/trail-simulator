@@ -55,9 +55,10 @@ Listener = Callable[[StatusSnapshot], Awaitable[None]]
 
 
 class SessionController:
-    def __init__(self, device: LocationClient, store: Store):
+    def __init__(self, device: LocationClient, store: Store, udid: str | None = None):
         self._device = device
         self._store = store
+        self._udid = udid
         self._state = SessionState.idle
         self._task: asyncio.Task | None = None
         self._pause_event = asyncio.Event()
@@ -149,7 +150,7 @@ class SessionController:
             last_error=self._last_error,
             cooldown_remaining_s=cd,
             steps_sent=self._steps_sent,
-            step_companions=_step_broadcaster.snapshot(),
+            step_companions=_step_broadcaster.snapshot(self._udid),
             following_leader=self._following_leader,
         )
 
@@ -689,7 +690,7 @@ class SessionController:
 
     async def _emit_steps(self, delta_m: float) -> None:
         from ..api.ws_steps import broadcaster as _step_broadcaster
-        if not _step_broadcaster.has_clients():
+        if not _step_broadcaster.has_clients(self._udid):
             return
         total = delta_m / SETTINGS.stride_length_m + self._step_remainder
         n = math.floor(total)
@@ -697,10 +698,11 @@ class SessionController:
         if n <= 0:
             return
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        n_clients = len(_step_broadcaster._clients)
-        await _step_broadcaster.send({"type": "steps", "steps": n, "distance_m": delta_m, "ts": ts})
+        n_clients = sum(1 for c in _step_broadcaster._clients.values()
+                        if _step_broadcaster._udid_for(c) == self._udid)
+        await _step_broadcaster.send({"type": "steps", "steps": n, "distance_m": delta_m, "ts": ts}, self._udid)
         self._steps_sent += n
-        log.info("steps emitted: %d (delta %.2fm) -> %d companion(s)", n, delta_m, n_clients)
+        log.info("steps emitted: %d (delta %.2fm) -> %d companion(s) [udid=%s]", n, delta_m, n_clients, self._udid)
 
     def _pop_next_leg_target(self) -> tuple[float, float] | None:
         if self._destinations:

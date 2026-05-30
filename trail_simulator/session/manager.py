@@ -25,7 +25,7 @@ class SessionManager:
     def get_or_create(self, udid: str) -> SessionController:
         c = self._controllers.get(udid)
         if c is None:
-            c = SessionController(self._factory(udid), self._store)
+            c = SessionController(self._factory(udid), self._store, udid=udid)
             self._controllers[udid] = c
             log.info("session controller created for udid=%s", udid)
         return c
