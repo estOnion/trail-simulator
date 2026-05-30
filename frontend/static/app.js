@@ -21,6 +21,60 @@
   const el = (id) => document.getElementById(id);
   const fmt = (ll) => `${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)}`;
 
+  // ---- Device selection ----------------------------------------------------
+  // A mixed setup (iPhone + Android) always has 2+ devices, so the backend
+  // can't infer which one we mean — every request must carry the device name.
+  const DEVICE_KEY = 'trailsim.device';
+  const deviceSelect = el('device-select');
+
+  function selectedDevice() {
+    if (deviceSelect && deviceSelect.value) return deviceSelect.value;
+    return localStorage.getItem(DEVICE_KEY) || '';
+  }
+
+  // All /api control calls go through here so the chosen device travels with
+  // them. (Endpoints that ignore it, like /api/search, are unaffected.)
+  function api(path, opts = {}) {
+    const headers = Object.assign({}, opts.headers || {});
+    const dev = selectedDevice();
+    if (dev) headers['X-Device-Name'] = dev;
+    return fetch(path, Object.assign({}, opts, { headers }));
+  }
+
+  async function loadDevices() {
+    let devices = [];
+    try {
+      const r = await fetch('/api/devices');
+      if (!r.ok) return;
+      devices = (await r.json()).devices || [];
+    } catch (_) { return; }
+    const stored = localStorage.getItem(DEVICE_KEY);
+    deviceSelect.innerHTML = '';
+    devices.forEach((d) => {
+      const opt = document.createElement('option');
+      opt.value = d.name;
+      opt.textContent = `${d.name} · ${d.type || 'ios'}`;
+      deviceSelect.appendChild(opt);
+    });
+    if (stored && devices.some((d) => d.name === stored)) {
+      deviceSelect.value = stored;
+    } else if (devices.length > 0) {
+      deviceSelect.value = devices[0].name;
+      localStorage.setItem(DEVICE_KEY, deviceSelect.value);
+    }
+    deviceSelect.disabled = devices.length <= 1;
+  }
+
+  if (deviceSelect) {
+    deviceSelect.onchange = () => {
+      localStorage.setItem(DEVICE_KEY, deviceSelect.value);
+      reopenWs();
+      api('/api/status')
+        .then((r) => (r.ok ? r.json().then(renderSnapshot) : null))
+        .catch(() => {});
+    };
+  }
+
   function destPayload() {
     return destinations.map((d) => ({ lat: d.latlng.lat, lon: d.latlng.lng }));
   }
@@ -120,7 +174,7 @@
     if (!isActive()) return;
     if (destinations.length === 0) return;
     el('error').textContent = '';
-    const r = await fetch('/api/retarget', {
+    const r = await api('/api/retarget', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -211,7 +265,7 @@
     if (searchAbort) searchAbort.abort();
     searchAbort = new AbortController();
     try {
-      const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+      const r = await api(`/api/search?q=${encodeURIComponent(q)}`, {
         signal: searchAbort.signal,
       });
       if (!r.ok) {
@@ -261,7 +315,7 @@
   speedSlider.onchange = async () => {
     if (!isActive()) return;
     el('error').textContent = '';
-    const r = await fetch('/api/speed', {
+    const r = await api('/api/speed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ speed_kmh: Number(speedSlider.value) }),
@@ -279,7 +333,7 @@
   };
 
   async function postSession(body) {
-    return fetch('/api/session', {
+    return api('/api/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -302,7 +356,7 @@
     finally {
       lifecycleBusy = false;
       try {
-        const r = await fetch('/api/status');
+        const r = await api('/api/status');
         if (r.ok) renderSnapshot(await r.json());
       } catch (_) { /* WS will eventually catch up */ }
     }
@@ -314,7 +368,7 @@
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       try {
-        const r = await fetch('/api/status');
+        const r = await api('/api/status');
         if (r.ok) {
           const s = await r.json();
           if (s.state === target) return true;
@@ -334,7 +388,7 @@
       // Layer 3: 409 = lifecycle race slipped past Layers 1+2 (e.g. server
       // restart, manual API caller). Force-stop, wait for idle, retry once.
       if (r.status === 409) {
-        await fetch('/api/stop', { method: 'POST' });
+        await api('/api/stop', { method: 'POST' });
         const settled = await waitForState('idle', 3000);
         if (settled) {
           r = await postSession(body);
@@ -371,14 +425,14 @@
     await attemptStart(body);
   });
 
-  el('pause').onclick  = () => fetch('/api/pause',  { method: 'POST' });
-  el('resume').onclick = () => fetch('/api/resume', { method: 'POST' });
+  el('pause').onclick  = () => api('/api/pause',  { method: 'POST' });
+  el('resume').onclick = () => api('/api/resume', { method: 'POST' });
   el('stop').onclick   = () => runLifecycle(async () => {
-    await fetch('/api/stop', { method: 'POST' });
+    await api('/api/stop', { method: 'POST' });
   });
 
   el('reset-gps').onclick = () => runLifecycle(async () => {
-    await fetch('/api/reset', { method: 'POST' });
+    await api('/api/reset', { method: 'POST' });
     clearCurrent();   // drop the stale dot + breadcrumb immediately (matches iOS)
   });
 
@@ -466,14 +520,26 @@
     }
   }
 
+  let ws = null;
   function openWs() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws/live`);
+    const dev = selectedDevice();
+    const q = dev ? `?device=${encodeURIComponent(dev)}` : '';
+    ws = new WebSocket(`${proto}://${location.host}/ws/live${q}`);
+    ws.onopen = () => { loadDevices(); };          // refresh list on (re)connect
     ws.onmessage = (ev) => { try { renderSnapshot(JSON.parse(ev.data)); } catch {} };
     ws.onclose = () => setTimeout(openWs, 1500);
   }
-  openWs();
+  // Switch the live stream to the currently selected device without waiting
+  // for the reconnect backoff.
+  function reopenWs() {
+    if (ws) { ws.onclose = null; try { ws.close(); } catch (_) {} }
+    openWs();
+  }
 
   setPickMode('origin');
   updateLabels();
+  // Pick a device before opening the WS so a mixed (2+ device) backend doesn't
+  // reject an unscoped /ws/live subscription.
+  loadDevices().then(openWs);
 })();
