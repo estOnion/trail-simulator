@@ -10,7 +10,9 @@ struct SettingsScreen: View {
     @State private var devices: [BackendDevice] = []
     @State private var loadingDevices: Bool = false
     @State private var deviceError: String? = nil
-    @FocusState private var urlFocused: Bool
+    @FocusState private var focusedField: Field?
+
+    private enum Field { case url, clientId }
     @State private var clientIdText: String = ""
     @State private var savingIdentity: Bool = false
     @State private var identityError: String? = nil
@@ -39,12 +41,12 @@ struct SettingsScreen: View {
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .focused($urlFocused)
+                        .focused($focusedField, equals: .url)
                         .submitLabel(.done)
                         .onSubmit { save() }
 
                     Button(saving ? "Testing…" : "Test connection") {
-                        urlFocused = false
+                        focusedField = nil
                         Task { await probe() }
                     }
                     .disabled(saving)
@@ -60,8 +62,9 @@ struct SettingsScreen: View {
                     TextField("This iPhone's UUID", text: $clientIdText)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .focused($focusedField, equals: .clientId)
                     Button(savingIdentity ? "Validating…" : "Save UUID") {
-                        urlFocused = false
+                        focusedField = nil
                         Task { await saveIdentity() }
                     }
                     .disabled(savingIdentity || clientIdText.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -88,7 +91,7 @@ struct SettingsScreen: View {
                         }
                     }
                     Button("Refresh devices") {
-                        urlFocused = false
+                        focusedField = nil
                         Task { await loadDevices() }
                     }
                     .disabled(loadingDevices)
@@ -122,13 +125,13 @@ struct SettingsScreen: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         urlText = config.baseURL.absoluteString
-                        urlFocused = false
+                        focusedField = nil
                         probeMessage = .info("Changes reverted")
                     }
                 }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("Done") { urlFocused = false }
+                    Button("Done") { focusedField = nil }
                 }
             }
             .onAppear {
@@ -214,7 +217,7 @@ struct SettingsScreen: View {
         }
         config.baseURL = url
         config.save()
-        urlFocused = false
+        focusedField = nil
         probeMessage = .ok("Saved ✓")
         Task {
             await client.updateBaseURL(url)
