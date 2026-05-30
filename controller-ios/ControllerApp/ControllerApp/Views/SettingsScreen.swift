@@ -203,8 +203,10 @@ struct SettingsScreen: View {
             config.save()
             await client.updateClientId(newId)
             probeMessage = .ok("UUID saved ✓")
-        } catch BackendError.duplicateClientId {
-            identityError = "That UUID is already used by another device — pick a different one."
+        } catch BackendError.duplicateClientId(let detail) {
+            // 409 covers both "that UUID is taken" and "that device is already
+            // controlled by another phone" — surface the backend's reason.
+            identityError = detail
         } catch {
             identityError = "Couldn't validate UUID — check the backend connection."
         }
