@@ -123,3 +123,8 @@ body.picking #map { cursor: crosshair; }
   color: #999;
   border-color: #ddd;
 }
+
+.admin summary { cursor: pointer; font-size: 13px; color: #555; }
+.admin .binding-list { font-size: 12px; margin: 6px 0; display: flex; flex-direction: column; gap: 2px; }
+.admin .admin-rebind { display: flex; gap: 4px; align-items: center; }
+.admin .admin-rebind input { flex: 1; min-width: 0; }

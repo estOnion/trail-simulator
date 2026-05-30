@@ -75,6 +75,63 @@
     };
   }
 
+  // ---- Admin: device bindings (takeover) -----------------------------------
+  async function loadBindings() {
+    const list = el('binding-list');
+    const sel = el('rebind-device');
+    if (!list || !sel) return;
+    let devices = [];
+    try {
+      const r = await fetch('/api/devices');
+      if (!r.ok) return;
+      devices = (await r.json()).devices || [];
+    } catch (_) { return; }
+    list.innerHTML = '';
+    sel.innerHTML = '';
+    devices.forEach((d) => {
+      const row = document.createElement('div');
+      const owner = d.bound_client_id ? `→ ${d.bound_client_id}` : '· unbound';
+      row.textContent = `${d.name} (${d.type || 'ios'}) ${owner}`;
+      list.appendChild(row);
+      const opt = document.createElement('option');
+      opt.value = d.udid;
+      opt.textContent = d.name;
+      sel.appendChild(opt);
+    });
+  }
+
+  const rebindBtn = el('rebind-btn');
+  if (rebindBtn) {
+    rebindBtn.onclick = async () => {
+      const udid = el('rebind-device').value;
+      const clientId = el('rebind-client').value.trim();
+      const msg = el('admin-msg');
+      if (!udid || !clientId) { msg.textContent = 'pick a device and enter a client UUID'; return; }
+      try {
+        const r = await fetch('/api/rebind', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, udid }),
+        });
+        if (r.ok) {
+          msg.textContent = `reassigned to ${clientId} ✓`;
+          el('rebind-client').value = '';
+          loadBindings();
+        } else {
+          const detail = await r.json().catch(() => ({}));
+          msg.textContent = `failed: ${detail.detail || r.status}`;
+        }
+      } catch (_) {
+        msg.textContent = 'failed: backend unreachable';
+      }
+    };
+  }
+
+  const adminPanel = document.querySelector('.admin');
+  if (adminPanel) {
+    adminPanel.addEventListener('toggle', () => { if (adminPanel.open) loadBindings(); });
+  }
+
   function destPayload() {
     return destinations.map((d) => ({ lat: d.latlng.lat, lon: d.latlng.lng }));
   }
