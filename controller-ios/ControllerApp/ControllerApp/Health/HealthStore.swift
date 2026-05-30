@@ -54,9 +54,9 @@ final class HealthStore: ObservableObject {
         }
     }
 
-    func connect(baseURL: URL, label: String) {
+    func connect(baseURL: URL, clientId: String) {
         guard enabled else { return }
-        client.connect(baseURL: baseURL, label: label) { [weak self] event in
+        client.connect(baseURL: baseURL, clientId: clientId) { [weak self] event in
             Task { @MainActor [weak self] in self?.apply(event: event) }
         }
     }
@@ -65,8 +65,8 @@ final class HealthStore: ObservableObject {
         client.disconnect()
     }
 
-    func reconnect(baseURL: URL, label: String) {
+    func reconnect(baseURL: URL, clientId: String) {
         disconnect()
-        connect(baseURL: baseURL, label: label)
+        connect(baseURL: baseURL, clientId: clientId)
     }
 }
