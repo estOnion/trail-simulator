@@ -37,7 +37,10 @@
   function api(path, opts = {}) {
     const headers = Object.assign({}, opts.headers || {});
     const dev = selectedDevice();
-    if (dev) headers['X-Device-Name'] = dev;
+    // Device names carry non-Latin-1 chars (e.g. the curly apostrophe in
+    // "Jack’s iPhone"), which fetch() rejects in a raw header value. Percent-
+    // encode it; the server decodes the header before matching.
+    if (dev) headers['X-Device-Name'] = encodeURIComponent(dev);
     return fetch(path, Object.assign({}, opts, { headers }));
   }
 

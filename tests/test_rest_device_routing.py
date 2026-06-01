@@ -57,6 +57,21 @@ def test_status_routes_by_header(tmp_path):
     assert resp.json()["state"] == "idle"
 
 
+def test_status_routes_by_percent_encoded_header(tmp_path):
+    # iPhone names carry non-Latin-1 chars (curly apostrophe), which the Fetch
+    # API forbids in raw header values. The web client percent-encodes the name;
+    # the server must decode it before matching the registry.
+    from urllib.parse import quote
+
+    name = "Jack’s iPhone"
+    client = _make_app(tmp_path, [("UDID-A", name), ("UDID-B", "Spare")])
+    resp = client.get(
+        "/api/status", headers={"X-Device-Name": quote(name, safe="")}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["state"] == "idle"
+
+
 def test_status_defaults_when_single_device(tmp_path):
     client = _make_app(tmp_path, [("UDID-A", "Jack")])
     resp = client.get("/api/status")  # no header

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from typing import Awaitable, Callable
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -83,6 +84,11 @@ def build_router(
             return manager.get_or_create(udid)
 
         # Fallback: legacy device-name path (web frontend / single device).
+        # The web client percent-encodes the name because device names carry
+        # non-Latin-1 chars (curly apostrophe) that the Fetch API rejects in a
+        # raw header. Decode it; raw names (iOS, no '%') pass through unchanged.
+        if x_device_name is not None:
+            x_device_name = unquote(x_device_name)
         name = x_device_name or device
         udid = registry.resolve(name) if name else None
         if udid is None:
