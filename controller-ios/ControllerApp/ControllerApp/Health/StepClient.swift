@@ -9,6 +9,7 @@ final class StepClient: ObservableObject {
 
     private var task: URLSessionWebSocketTask?
     private var onEvent: ((StepEvent) -> Void)?
+    private let session = URLSession(configuration: .default)
 
     nonisolated static func stepsURL(from base: URL) -> URL? {
         var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)
@@ -30,7 +31,6 @@ final class StepClient: ObservableObject {
         }
         self.onEvent = onEvent
         task?.cancel(with: .normalClosure, reason: nil)
-        let session = URLSession(configuration: .default)
         task = session.webSocketTask(with: url)
         task?.resume()
 

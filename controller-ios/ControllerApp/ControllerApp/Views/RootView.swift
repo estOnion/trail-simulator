@@ -50,5 +50,16 @@ struct RootView: View {
                 store.apply(snapshot: snap)
             }
         }
+        .onChange(of: health.enabled) { _, isEnabled in
+            // The connection lifecycle .task keys on isConnected, not on the
+            // HealthKit toggle, so drive the steps socket directly here so the
+            // toggle actually connects/disconnects.
+            guard store.isConnected else { return }
+            if isEnabled {
+                health.connect(baseURL: config.baseURL, clientId: config.clientId)
+            } else {
+                health.disconnect()
+            }
+        }
     }
 }
