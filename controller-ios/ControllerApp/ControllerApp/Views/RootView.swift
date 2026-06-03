@@ -22,18 +22,25 @@ struct RootView: View {
         let connected: Bool
     }
 
+    private enum Tab: Hashable { case map, health, settings }
+    @State private var selectedTab: Tab = .map
+
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             MapTabView(client: client)
                 .environmentObject(store)
                 .tabItem { Label("Map", systemImage: "map") }
+                .tag(Tab.map)
 
             HealthTabView(health: health)
                 .tabItem { Label("Health", systemImage: "heart.text.square") }
+                .tag(Tab.health)
 
             SettingsTabView(config: $config, client: client)
                 .environmentObject(store)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
+                .badge(store.settingsUnread ? 1 : 0)
+                .tag(Tab.settings)
         }
         .task(id: ConnectionKey(url: config.baseURL, clientId: config.clientId,
                                 watching: store.watchingLeaderId, connected: store.isConnected)) {
@@ -46,9 +53,21 @@ struct RootView: View {
             health.connect(baseURL: config.baseURL, clientId: config.clientId)
             let effective = store.watchingLeaderId ?? config.clientId
             let stream = await subscriber.start(baseURL: config.baseURL, clientId: effective)
-            for await snap in stream {
-                store.apply(snapshot: snap)
+            for await event in stream {
+                switch event {
+                case .snapshot(let snap):
+                    store.apply(snapshot: snap)
+                case .connected:
+                    break
+                case .disconnected:
+                    // Badge the Settings tab if the drop happened while the user
+                    // is looking at another tab.
+                    if selectedTab != .settings { store.settingsUnread = true }
+                }
             }
+        }
+        .onChange(of: selectedTab) { _, tab in
+            if tab == .settings { store.settingsUnread = false }
         }
         .onChange(of: health.enabled) { _, isEnabled in
             // The connection lifecycle .task keys on isConnected, not on the
