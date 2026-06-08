@@ -41,37 +41,22 @@ class Settings:
     step_companion_enabled: bool = True
     stride_length_m: float = 0.7
 
+    # Cooldown after a long-distance reposition = realistic travel time to
+    # cover the jump. The settle time is distance ÷ this assumed transit speed
+    # (≈ driving). A 60 km jump → 60 min wait, 600 km → 10 h.
+    cooldown_transit_kmh: float = 60.0
+
 
 SETTINGS = Settings()
 
 
-# Distance-based cooldown table (distance km -> minutes).
-# Enforces a settle time after long-distance repositions so the simulated
-# trail never makes an implausible instant jump. A lookup returns the
-# cooldown of the largest tier <= the distance travelled.
-COOLDOWN_TABLE: list[tuple[float, float]] = [
-    (1.0, 0.5),
-    (2.0, 1.0),
-    (4.0, 2.0),
-    (10.0, 8.0),
-    (25.0, 12.0),
-    (50.0, 18.0),
-    (100.0, 28.0),
-    (250.0, 40.0),
-    (500.0, 50.0),
-    (750.0, 60.0),
-    (1000.0, 70.0),
-    (1500.0, 120.0),
-]
-
-
-def cooldown_minutes_for_distance(km: float) -> float:
-    if km <= 0:
+def cooldown_seconds_for_distance(m: float, transit_kmh: float | None = None) -> float:
+    """Settle time after a teleport, in seconds: the time it would realistically
+    take to physically travel the jumped distance at `transit_kmh`. Enforces a
+    plausible gap so the simulated trail never makes an instant long jump."""
+    if m <= 0:
         return 0.0
-    chosen = 0.0
-    for threshold_km, minutes in COOLDOWN_TABLE:
-        if km >= threshold_km:
-            chosen = minutes
-        else:
-            break
-    return chosen
+    kmh = transit_kmh if transit_kmh is not None else SETTINGS.cooldown_transit_kmh
+    if kmh <= 0:
+        return 0.0
+    return m / (kmh * 1000.0 / 3600.0)

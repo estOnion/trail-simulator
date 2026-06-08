@@ -4,6 +4,7 @@ import asyncio
 import logging
 import math
 import random
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -78,6 +79,11 @@ class SessionController:
         self._steps_sent: int = 0
         self._step_remainder: float = 0.0
 
+        # Wall-clock instant the pending start-cooldown expires. Set when a
+        # start() is blocked; status() reports the live remaining against it so
+        # the UI counts down. 0.0 = no cooldown pending.
+        self._cooldown_until: float = 0.0
+
         # Saved params for auto-resume after DeviceUnavailable.
         self._last_start_params: dict | None = None
         self._reconnect_task: asyncio.Task | None = None
@@ -128,14 +134,9 @@ class SessionController:
     # Public API
     # ------------------------------------------------------------------ #
     def status(self) -> StatusSnapshot:
-        cd = 0.0
-        last = self._store.get_last_fix()
-        if last and self._current_leg_target:
-            decision = evaluate_cooldown(
-                last[0], last[1], last[2],
-                self._current_leg_target[0], self._current_leg_target[1],
-            )
-            cd = decision.required_wait_s
+        # Live remaining on the pending start-cooldown (set when a start was
+        # blocked). Fixed expiry instant → counts down as wall-clock advances.
+        cd = max(0.0, self._cooldown_until - time.time())
         from ..api.ws_steps import broadcaster as _step_broadcaster
         return StatusSnapshot(
             state=self._state,
@@ -198,9 +199,11 @@ class SessionController:
                 )
                 if not decision.allowed:
                     self._last_error = decision.reason
+                    self._cooldown_until = time.time() + decision.required_wait_s
                     await self._broadcast()
                     return decision
 
+            self._cooldown_until = 0.0  # starting → clear any pending cooldown
             self._state = SessionState.starting
             self._last_error = None
             self._origin = (start_lat, start_lon)
@@ -300,6 +303,11 @@ class SessionController:
             self._last_error = None
             self._session_id = None
             self._last_start_params = None
+            # Released to real GPS — the last spoofed fix is no longer where the
+            # phone is, so drop it (and any pending cooldown) to avoid a phantom
+            # jump distance on the next start.
+            self._store.clear_last_fix()
+            self._cooldown_until = 0.0
             self._state = SessionState.idle
             await self._broadcast()
 

@@ -439,6 +439,39 @@
     return false;
   }
 
+  // Live, client-side cooldown countdown. The server only pushes status
+  // snapshots while a session runs, so a blocked start can't tick from the
+  // wire — we count down locally from the returned required_wait_s and either
+  // auto-start at zero or skip early if the user re-clicks Walk.
+  let cooldownTimer = null;
+
+  function cancelCooldownCountdown() {
+    if (cooldownTimer) { clearInterval(cooldownTimer); cooldownTimer = null; }
+  }
+
+  function startCooldownCountdown(body, detail) {
+    cancelCooldownCountdown();
+    const endTime = Date.now() + (detail.required_wait_s || 0) * 1000;
+    const jumpKm = detail.jump_km || 0;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
+      if (remaining <= 0) {
+        cancelCooldownCountdown();
+        el('cooldown').textContent = '—';
+        el('error').textContent = '';
+        attemptStart(body);                 // cooldown elapsed → start for real
+        return;
+      }
+      const mm = Math.floor(remaining / 60);
+      const ss = String(remaining % 60).padStart(2, '0');
+      el('cooldown').textContent = `${mm}:${ss}`;
+      el('error').textContent =
+        `Cooldown: ${jumpKm.toFixed(1)}km jump. Ready in ${mm}:${ss} — click Walk to skip.`;
+    };
+    tick();
+    cooldownTimer = setInterval(tick, 1000);
+  }
+
   async function attemptStart(body) {
     let r = await postSession(body);
     if (!r.ok) {
@@ -460,11 +493,7 @@
       }
 
       if (detail && typeof detail === 'object' && detail.cooldown) {
-        const msg = `Cooldown would block this jump.\n\n${detail.reason}\n\nSkip cooldown and start anyway?`;
-        if (window.confirm(msg)) {
-          return attemptStart({ ...body, skip_cooldown: true });
-        }
-        el('error').textContent = detail.reason;
+        startCooldownCountdown(body, detail);
         return;
       }
       el('error').textContent = typeof detail === 'string'
@@ -482,16 +511,24 @@
       speed_kmh: Number(speedSlider.value),
       loop: el('loop-toggle').checked,
     };
+    if (cooldownTimer) {            // re-click during countdown = skip & start now
+      cancelCooldownCountdown();
+      el('cooldown').textContent = '—';
+      await attemptStart({ ...body, skip_cooldown: true });
+      return;
+    }
     await attemptStart(body);
   });
 
   el('pause').onclick  = () => api('/api/pause',  { method: 'POST' });
   el('resume').onclick = () => api('/api/resume', { method: 'POST' });
   el('stop').onclick   = () => runLifecycle(async () => {
+    cancelCooldownCountdown();
     await api('/api/stop', { method: 'POST' });
   });
 
   el('reset-gps').onclick = () => runLifecycle(async () => {
+    cancelCooldownCountdown();
     await api('/api/reset', { method: 'POST' });
     clearCurrent();   // drop the stale dot + breadcrumb immediately (matches iOS)
   });
@@ -525,8 +562,12 @@
         return `<span class="step-companion-row">${c.label} · ack ${ack} · hb ${hbS}s ago</span>`;
       }).join('');
     }
-    el('cooldown').textContent = s.cooldown_remaining_s > 0
-      ? `${Math.ceil(s.cooldown_remaining_s)}s` : '—';
+    // While a local countdown is ticking, it owns the cooldown readout — don't
+    // let a stray snapshot overwrite it.
+    if (!cooldownTimer) {
+      el('cooldown').textContent = s.cooldown_remaining_s > 0
+        ? `${Math.ceil(s.cooldown_remaining_s)}s` : '—';
+    }
 
     const deviceError = s.last_error && s.last_error.startsWith('device:');
     if (s.state === 'reconnecting') {
