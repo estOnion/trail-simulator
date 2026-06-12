@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,7 +26,7 @@ async def _await_if_coro(val: Any) -> Any:
     return val
 
 
-_WIFI_SETUP_HINT = (
+_UNIX_WIFI_SETUP_HINT = (
     "No iPhone detected over USB or Wi-Fi.\n\n"
     "For Wi-Fi-only operation (iOS 17.4+):\n"
     "  1. Plug the iPhone in via USB once and tap 'Trust'.\n"
@@ -35,6 +36,23 @@ _WIFI_SETUP_HINT = (
     "  5. Ensure 'sudo pymobiledevice3 remote tunneld' is running.\n\n"
     "Or plug in the iPhone via USB and rerun."
 )
+
+_WINDOWS_WIFI_SETUP_HINT = (
+    "No iPhone detected over USB or Wi-Fi.\n\n"
+    "For Wi-Fi-only operation (iOS 17.4+):\n"
+    "  1. Plug the iPhone in via USB once and tap 'Trust'.\n"
+    "  2. Enable Developer Mode: Settings → Privacy & Security → Developer Mode.\n"
+    "  3. Run: python -m pymobiledevice3 lockdown wifi-connections on\n"
+    "  4. Unplug the cable; keep iPhone on the same LAN as this PC.\n"
+    "  5. Ensure the tunnel is running (elevated): .\\scripts\\win\\run-tunneld.ps1\n\n"
+    "Or plug in the iPhone via USB and rerun."
+)
+
+
+def _wifi_setup_hint() -> str:
+    return (
+        _WINDOWS_WIFI_SETUP_HINT if sys.platform == "win32" else _UNIX_WIFI_SETUP_HINT
+    )
 
 
 def _usbmux_udid(device: Any) -> str | None:
@@ -104,7 +122,7 @@ async def _preflight_via_tunneld(udid: str | None = None) -> PreflightResult:
             )
 
     if not rsds:
-        return PreflightResult(False, None, None, None, _WIFI_SETUP_HINT)
+        return PreflightResult(False, None, None, None, _wifi_setup_hint())
 
     if len(rsds) > 1:
         udids = "\n  - ".join(rsd_udid(r) or "<unknown>" for r in rsds)
