@@ -245,9 +245,11 @@ Temporary Items
 .claude/
 CLAUDE.md
 
-# Research records (local-only); design specs under docs/superpowers/ are tracked
+# Research records (local-only); design specs under docs/superpowers/ and the
+# shipped Windows setup guide are tracked
 docs/*
 !docs/superpowers/
+!docs/WINDOWS.md
 
 # Xcode user-specific state (should never be committed)
 **/xcuserdata/
