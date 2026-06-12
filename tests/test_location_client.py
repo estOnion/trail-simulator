@@ -71,3 +71,50 @@ async def test_set_does_not_hang_when_device_stalls(monkeypatch):
     with pytest.raises(DeviceUnavailable):
         await asyncio.wait_for(client.set(25.0, 121.0), timeout=1.0)
     assert reconnects["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_set_counts_success(monkeypatch):
+    client = LocationClient()
+
+    class OkLoc:
+        async def set(self, lat, lon):
+            return None
+
+    client._loc = OkLoc()
+    await client.set(25.0, 121.0)
+    assert client._set_total == 1
+    assert client._set_fail == 0
+
+
+@pytest.mark.asyncio
+async def test_set_counts_failure_then_recovers(monkeypatch):
+    monkeypatch.setattr(
+        location,
+        "SETTINGS",
+        SimpleNamespace(device_set_timeout_s=0.05, reconnect_max_backoff_s=0.01),
+    )
+    client = LocationClient()
+
+    class FlakyLoc:
+        def __init__(self):
+            self.calls = 0
+
+        async def set(self, lat, lon):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("stall")
+            return None
+
+    flaky = FlakyLoc()
+    client._loc = flaky
+
+    async def fake_reconnect():
+        # leave the same flaky loc in place; second call succeeds
+        return None
+
+    monkeypatch.setattr(client, "_reconnect", fake_reconnect)
+
+    await client.set(25.0, 121.0)
+    assert client._set_total == 1
+    assert client._set_fail == 1  # first attempt failed even though retry recovered
