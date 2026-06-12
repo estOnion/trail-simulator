@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 from typing import Any
 
 from ..config import SETTINGS
@@ -36,7 +37,7 @@ def tunneld_reachable(timeout_s: float = 1.0) -> bool:
         return False
 
 
-START_INSTRUCTIONS = """\
+_UNIX_INSTRUCTIONS = """\
 tunneld is not running on {host}:{port}.
 
 On iOS 17+ the DVT location-simulation service is only reachable over the
@@ -53,7 +54,27 @@ paired via USB once and have Wi-Fi pairing enabled:
     python3 -m pymobiledevice3 lockdown wifi-connections on
 """
 
+_WINDOWS_INSTRUCTIONS = """\
+tunneld is not running on {host}:{port}.
+
+On iOS 17+ the DVT location-simulation service is only reachable over the
+RemoteXPC tunnel, which tunneld provides. In a SEPARATE, ELEVATED window run
+(right-click PowerShell -> Run as Administrator, or use the helper which
+self-elevates):
+
+    .\\scripts\\win\\run-tunneld.ps1
+
+Leave it running. If the app is already running, tunneld will be picked up
+automatically — you do not need to restart the app.
+
+See docs/WINDOWS.md for driver setup (Apple Devices / usbmux) and the WSL2
+alternative.
+"""
+
 
 def start_instructions() -> str:
     host, port = _default_address()
-    return START_INSTRUCTIONS.format(host=host, port=port)
+    template = (
+        _WINDOWS_INSTRUCTIONS if sys.platform == "win32" else _UNIX_INSTRUCTIONS
+    )
+    return template.format(host=host, port=port)
