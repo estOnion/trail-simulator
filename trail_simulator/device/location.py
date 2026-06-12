@@ -32,6 +32,8 @@ class LocationClient:
         self._loc: Any = None      # entered LocationSimulation
         self._reconnecting = False
         self._lock = asyncio.Lock()
+        self._set_total = 0
+        self._set_fail = 0
 
     # ------------------------------------------------------------------ #
     async def open(self) -> None:
@@ -69,13 +71,28 @@ class LocationClient:
     async def set(self, lat: float, lon: float) -> None:
         if self._loc is None:
             await self._reconnect()
+        self._set_total += 1
         try:
             await self._set_with_timeout(lat, lon)
         except Exception as e:  # noqa: BLE001
+            self._set_fail += 1
             log.warning("location.set failed: %s — reconnecting", e)
             await self._reconnect()
             if self._loc is not None:
                 await self._set_with_timeout(lat, lon)
+        finally:
+            self._maybe_log_reliability()
+
+    def _maybe_log_reliability(self) -> None:
+        # ~once a minute at 1 Hz: surface the running set() success rate so the
+        # Windows reliability gate (>= 99%) can be read straight from the logs.
+        if self._set_total and self._set_total % 60 == 0:
+            ok = self._set_total - self._set_fail
+            rate = 100.0 * ok / self._set_total
+            log.info(
+                "location.set reliability: %d/%d ok (%.2f%%)",
+                ok, self._set_total, rate,
+            )
 
     async def _set_with_timeout(self, lat: float, lon: float) -> None:
         # The DTX simulate_location reply can stall indefinitely if the tunnel

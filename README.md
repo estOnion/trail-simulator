@@ -22,6 +22,11 @@ No jailbreak, no sideloading, no modifications to the iPhone — built on the sa
 
 The Mac runs a local FastAPI server and `pymobiledevice3`'s `tunneld`. Tunneld creates a kernel `utun` interface and speaks RemoteXPC to the iPhone over USB or LAN; the app streams `CLLocation` updates through DVT at ~1 Hz. A browser on the iPhone (or anything on the same Wi-Fi) drives the session over HTTP. Cooldown state persists in a local SQLite DB so anti-teleport gates survive restarts.
 
+## Windows
+
+This README covers macOS. To run the host on **Windows** (iPhone primary,
+rooted-Android fallback), see **[docs/WINDOWS.md](docs/WINDOWS.md)**.
+
 ## Requirements
 
 - macOS 13+ (Ventura or later; Sequoia tested)
