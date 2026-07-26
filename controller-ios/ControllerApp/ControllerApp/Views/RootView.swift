@@ -60,14 +60,12 @@ struct RootView: View {
                 case .connected:
                     break
                 case .disconnected:
-                    // Badge the Settings tab if the drop happened while the user
-                    // is looking at another tab.
-                    if selectedTab != .settings { store.settingsUnread = true }
+                    store.noteConnectionDropped(viewingSettings: selectedTab == .settings)
                 }
             }
         }
         .onChange(of: selectedTab) { _, tab in
-            if tab == .settings { store.settingsUnread = false }
+            if tab == .settings { store.markSettingsSeen() }
         }
         .onChange(of: health.enabled) { _, isEnabled in
             // The connection lifecycle .task keys on isConnected, not on the
