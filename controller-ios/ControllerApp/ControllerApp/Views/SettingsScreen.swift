@@ -6,6 +6,7 @@ struct SettingsScreen: View {
     @EnvironmentObject var store: SessionStore
     @State private var urlText: String = ""
     @State private var saving: Bool = false
+    @State private var connecting: Bool = false
     @State private var probeMessage: ProbeMessage? = nil
     @State private var devices: [BackendDevice] = []
     @State private var loadingDevices: Bool = false
@@ -106,10 +107,16 @@ struct SettingsScreen: View {
                             .font(.subheadline)
                         Spacer()
                     }
-                    Button(store.isConnected ? "Disconnect" : "Connect") {
-                        store.isConnected.toggle()
+                    Button(connectButtonTitle) {
+                        focusedField = nil
+                        if store.isConnected {
+                            store.isConnected = false
+                        } else {
+                            Task { await connect() }
+                        }
                     }
                     .tint(store.isConnected ? .red : .accentColor)
+                    .disabled(connecting)
                 }
 
                 Section("Build") {
@@ -224,6 +231,25 @@ struct SettingsScreen: View {
         Task {
             await client.updateBaseURL(url)
             await loadDevices()
+        }
+    }
+
+    private var connectButtonTitle: String {
+        if connecting { return "Connecting…" }
+        return store.isConnected ? "Disconnect" : "Connect"
+    }
+
+    /// Verifies the backend is actually reachable before flipping the connection
+    /// state on, so the indicator reflects reality instead of just intent.
+    private func connect() async {
+        connecting = true; defer { connecting = false }
+        do {
+            _ = try await client.fetchStatus()
+            store.isConnected = true
+            probeMessage = .ok("Connected ✓")
+        } catch {
+            store.isConnected = false
+            probeMessage = .failure("Can't reach backend — still disconnected")
         }
     }
 

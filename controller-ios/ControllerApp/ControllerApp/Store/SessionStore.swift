@@ -22,6 +22,10 @@ final class SessionStore: ObservableObject {
     // User-controlled connection toggle. Drives the WS lifecycle in RootView.
     @Published var isConnected: Bool = true
 
+    // Set when the live connection drops while the user is on another tab, so the
+    // Settings tab shows an unread badge. Cleared when the user opens Settings.
+    @Published private(set) var settingsUnread: Bool = false
+
     // When set, the Map view watches a leader's live stream instead of this
     // device's own session (view-only follow). RootView repoints the subscriber.
     @Published var watchingLeaderId: String? = nil
@@ -48,6 +52,17 @@ final class SessionStore: ObservableObject {
     // coordinates from the previous route and would otherwise splice into
     // the new trail.
     static let activeStates: Set<SessionState> = [.starting, .running, .paused, .following]
+
+    /// The live connection dropped. Badge Settings only if the user is looking
+    /// elsewhere — on Settings they can already see the connection state.
+    func noteConnectionDropped(viewingSettings: Bool) {
+        if !viewingSettings { settingsUnread = true }
+    }
+
+    /// The user opened Settings, so the drop is no longer unread.
+    func markSettingsSeen() {
+        settingsUnread = false
+    }
 
     func apply(snapshot: StatusSnapshot) {
         latest = snapshot

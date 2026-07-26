@@ -1,10 +1,18 @@
 import Foundation
 
-/// Subscribes to `/ws/live` and yields `StatusSnapshot` updates as an AsyncStream.
+/// Events emitted by the live subscriber: status updates plus connection
+/// transitions so the UI can reflect real reachability (e.g. a tab badge).
+enum LiveEvent {
+    case snapshot(StatusSnapshot)
+    case connected
+    case disconnected
+}
+
+/// Subscribes to `/ws/live` and yields `LiveEvent`s as an AsyncStream.
 /// Reconnects on transport errors with capped exponential backoff until cancelled.
 actor LiveStatusSubscriber {
     private var task: URLSessionWebSocketTask?
-    private var continuation: AsyncStream<StatusSnapshot>.Continuation?
+    private var continuation: AsyncStream<LiveEvent>.Continuation?
     private var consumerTask: Task<Void, Never>?
 
     private let session: URLSession
@@ -14,11 +22,11 @@ actor LiveStatusSubscriber {
     }
 
     /// Starts the subscription. Calling again replaces the existing one.
-    func start(baseURL: URL, clientId: String?) -> AsyncStream<StatusSnapshot> {
+    func start(baseURL: URL, clientId: String?) -> AsyncStream<LiveEvent> {
         cancel()
 
         let wsURL = Self.webSocketURL(from: baseURL, clientId: clientId)
-        let (stream, cont) = AsyncStream<StatusSnapshot>.makeStream()
+        let (stream, cont) = AsyncStream<LiveEvent>.makeStream()
         continuation = cont
 
         consumerTask = Task { [session, weak self] in
@@ -30,18 +38,26 @@ actor LiveStatusSubscriber {
                 await self?.setTask(task)
                 task.resume()
 
+                // The first successful receive proves the socket is up; a thrown
+                // receive means the connection dropped. Announce each transition
+                // once per cycle so the UI sees connected/disconnected edges.
+                var announcedConnected = false
                 do {
                     while !Task.isCancelled {
                         let msg = try await task.receive()
+                        if !announcedConnected {
+                            announcedConnected = true
+                            cont.yield(.connected)
+                        }
                         switch msg {
                         case .string(let text):
                             if let snap = try? Self.decodeFrame(text) {
-                                cont.yield(snap)
+                                cont.yield(.snapshot(snap))
                             }
                         case .data(let data):
                             if let text = String(data: data, encoding: .utf8),
                                let snap = try? Self.decodeFrame(text) {
-                                cont.yield(snap)
+                                cont.yield(.snapshot(snap))
                             }
                         @unknown default:
                             break
@@ -54,6 +70,7 @@ actor LiveStatusSubscriber {
                 task.cancel(with: .normalClosure, reason: nil)
                 if Task.isCancelled { break }
 
+                cont.yield(.disconnected)
                 try? await Task.sleep(nanoseconds: backoff)
                 backoff = min(backoff * 2, cap)
             }
