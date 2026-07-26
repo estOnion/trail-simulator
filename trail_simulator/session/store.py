@@ -48,6 +48,9 @@ class Store:
             (lat, lon, ts),
         )
 
+    def clear_last_fix(self) -> None:
+        self._conn.execute("DELETE FROM last_fix WHERE id = 1")
+
     # ---- session rows ----
     def session_start(
         self,

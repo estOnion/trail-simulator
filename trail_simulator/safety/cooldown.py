@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from ..config import cooldown_minutes_for_distance
+from ..config import cooldown_seconds_for_distance
 from .speed_cap import distance_m
 
 
@@ -22,6 +22,7 @@ def evaluate_cooldown(
     next_lat: float,
     next_lon: float,
     now_ts: float | None = None,
+    transit_kmh: float | None = None,
 ) -> CooldownDecision:
     """Decide if an instantaneous reposition to (next_lat, next_lon) is allowed
     given the last known fix. Only applied at the *start* of a session — not
@@ -33,8 +34,7 @@ def evaluate_cooldown(
 
     m = distance_m(last_lat, last_lon, next_lat, next_lon)
     km = m / 1000.0
-    needed_min = cooldown_minutes_for_distance(km)
-    needed_s = needed_min * 60.0
+    needed_s = cooldown_seconds_for_distance(m, transit_kmh)
     elapsed_s = max(0.0, now - last_fix_ts)
 
     if elapsed_s >= needed_s:
@@ -45,9 +45,10 @@ def evaluate_cooldown(
     remaining = needed_s - elapsed_s
     mm = int(remaining // 60)
     ss = int(remaining % 60)
+    needed_min = needed_s / 60.0
     return CooldownDecision(
         False,
         remaining,
         km,
-        f"{km:.1f}km jump needs {needed_min:.0f}min cooldown — wait {mm}m{ss}s",
+        f"{km:.1f}km jump needs {needed_min:.0f}min travel — wait {mm}m{ss}s",
     )
