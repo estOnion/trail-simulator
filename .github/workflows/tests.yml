@@ -29,6 +29,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
+          # Without this both matrix legs race to write one shared key.
+          cache-suffix: py${{ matrix.python-version }}
 
       - name: Install dependencies
         run: uv sync --extra dev --python ${{ matrix.python-version }}
