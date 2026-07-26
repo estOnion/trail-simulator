@@ -1,4 +1,5 @@
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -149,10 +150,7 @@ def _port_is_free(port: int) -> bool:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX-only cleanup path")
-@pytest.mark.skipif(
-    subprocess.run(["which", "lsof"], capture_output=True).returncode != 0,
-    reason="lsof not installed",
-)
+@pytest.mark.skipif(shutil.which("lsof") is None, reason="lsof not installed")
 def test_frees_port_held_by_real_stale_backend(tmp_path):
     """End to end: a live process squatting the port is killed and the port reopens."""
     # The filename carries "trail_simulator" so the ps command-line guard matches.
