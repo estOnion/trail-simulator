@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import signal
+import subprocess
 import sys
+import time
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -59,6 +62,56 @@ def _make_device_factory(android_serials: set[str]):
         return LocationClient(udid=key)
 
     return _factory
+
+
+def _free_stale_port(port: int) -> None:
+    """Kill a stale trail-simulator still holding `port` from a previous run.
+
+    A backend that didn't shut down cleanly keeps its in-memory client↔device
+    bindings, so the next launch sees "client id already taken" with nothing
+    connected. On POSIX we find the listener via lsof and terminate it — but
+    only if its command line looks like our own backend, never an unrelated
+    service that happens to own the port. No-op on Windows (see scripts/win).
+    """
+    if os.name != "posix":
+        return
+
+    def _listeners() -> list[int]:
+        try:
+            out = subprocess.run(
+                ["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
+                capture_output=True, text=True, timeout=5,
+            ).stdout
+        except (FileNotFoundError, subprocess.SubprocessError):
+            return []
+        return [int(p) for p in out.split() if int(p) != os.getpid()]
+
+    for pid in _listeners():
+        try:
+            cmd = subprocess.run(
+                ["ps", "-o", "command=", "-p", str(pid)],
+                capture_output=True, text=True, timeout=5,
+            ).stdout
+        except subprocess.SubprocessError:
+            continue
+        if "trail_simulator" not in cmd and "trail-simulator" not in cmd:
+            log.warning("port %d held by unrelated process (pid %d); not killing", port, pid)
+            continue
+        log.info("killing stale trail-simulator on port %d (pid %d)", port, pid)
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        # Wait for graceful release; escalate to SIGKILL if it lingers.
+        for _ in range(30):  # up to ~3s
+            time.sleep(0.1)
+            if pid not in _listeners():
+                break
+        else:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 def build_app(manager: SessionManager, registry: DeviceRegistry, discover=None) -> FastAPI:
@@ -295,6 +348,8 @@ def main() -> int:
             return [d for d in devs if not allow or d[0] in allow]
 
     app = build_app(manager, registry, discover=discover)
+
+    _free_stale_port(args.port)
 
     url = f"http://{args.host}:{args.port}/"
     if not args.no_browser:
