@@ -1,6 +1,6 @@
 # TrailController — Xcode Setup & Sideload Guide
 
-TrailController is a sideloaded native iOS app that replaces the trail-simulator web UI. It gives you a native MapKit map with two-tap origin/destination pin selection, a breadcrumb trail, address search, Walk/Pause/Resume/Stop controls, a speed slider, cooldown handling, and a step-companions panel. It drives the trail-simulator backend over your LAN — HTTP for REST calls (`/api/*`) and one WebSocket (`/ws/live`) for live state. A free Apple ID is sufficient for sideloading.
+TrailController is a sideloaded native iOS app that replaces the trail-simulator web UI. Three tabs: **Map** (MapKit with two-tap pin selection, breadcrumb trail, address search, Walk/Pause/Resume/Stop, speed slider, cooldown handling), **Health** (HealthKit step writing), and **Settings** (backend address, identity, device binding). It drives the backend over your LAN — HTTP for REST calls (`/api/*`), plus WebSockets for live state (`/ws/live`) and steps (`/ws/steps`). A free Apple ID is enough to sideload it.
 
 The Xcode project already exists in this repo (`controller-ios/ControllerApp/`). This guide tells you how to open, sign, build, and sideload it — you do **not** create the project from scratch.
 
@@ -13,9 +13,11 @@ The Xcode project already exists in this repo (`controller-ios/ControllerApp/`).
    ControllerApp/ControllerApp/App/          # @main entry (ControllerAppApp.swift)
    ControllerApp/ControllerApp/Models/       # Codable request/response types
    ControllerApp/ControllerApp/Network/      # BackendClient (REST), LiveStatusSubscriber (WS), BackendConfig
+   ControllerApp/ControllerApp/Health/       # HealthStore, HealthWriter, StepClient
    ControllerApp/ControllerApp/Store/        # SessionStore (state + breadcrumb)
-   ControllerApp/ControllerApp/Views/        # MapScreen, SessionControls, SearchBar, SettingsScreen, StepCompanionsPanel, RootView
-   ControllerApp/ControllerApp/Resources/    # Info.plist
+   ControllerApp/ControllerApp/Views/        # RootView (tabs), MapScreen, SessionControls, SearchBar,
+                                             # SettingsScreen, FollowSheet, HealthTabView, StepCompanionsPanel
+   ControllerApp/ControllerApp/Resources/    # Info.plist, entitlements
    ControllerApp/ControllerApp/Assets.xcassets
    ```
    Tests live alongside in `ControllerApp/ControllerAppTests/`.
@@ -35,6 +37,8 @@ The bundled `Info.plist` already declares the keys the app needs:
 - `NSLocationWhenInUseUsageDescription` — used only to center the map on you; coordinates are never sent to the backend.
 - `NSLocalNetworkUsageDescription` — needed to reach the backend over your local Wi-Fi.
 - `NSAppTransportSecurity → NSAllowsLocalNetworking` — allows the plain-HTTP LAN connection to the Mac.
+- `NSHealthShareUsageDescription` / `NSHealthUpdateUsageDescription` — for the Health tab's HealthKit writes.
+- `UIBackgroundModes` — keeps the step stream alive while the screen is off.
 
 ## 4. Build
 
@@ -57,11 +61,13 @@ The bundled `Info.plist` already declares the keys the app needs:
 
 1. On the Mac, start the backend bound to the LAN (run from the project root, see the top-level [`README.md`](../README.md)):
    ```bash
-   uv run trail-simulator --host 0.0.0.0 --port 8787
+   uv run trail-simulator --host 0.0.0.0 --port 8080
    ```
-   The default backend URL baked into the app is `http://127.0.0.1:8787`, which only works in the iOS Simulator on the same Mac. On a physical iPhone you must point the app at the Mac's LAN IP.
+   Use **port 8080, not 8787.** pymobiledevice3's RSD tunnel listens on `127.0.0.1:8787` on the iPhone itself, so with the backend on 8787 the phone's outbound LAN request gets intercepted by its own tunnel and GPS spoofing silently fails. Any other free port works.
+
+   The URL baked into the app is `http://127.0.0.1:8787`, which is only useful in the iOS Simulator on the same Mac. On a physical iPhone you have to point it at the Mac's LAN IP anyway.
 2. In TrailController, tap the **gear** icon (top right) → **Settings**.
-3. In the **Backend** field, enter the Mac's address as a full URL, e.g. `http://192.168.1.50:8787` (use your Mac's actual LAN IP).
+3. In the **Backend** field, enter the Mac's address as a full URL, e.g. `http://192.168.1.50:8080` (use your Mac's actual LAN IP).
 4. Tap **Test connection**. On success you'll see `OK — state: idle`. On failure you'll see `Failed: …` — check that the backend is running with `--host 0.0.0.0`, that both devices are on the same Wi-Fi, and that the IP/port are correct.
 5. Tap **Save**. The app reconnects the `/ws/live` WebSocket to the new address and persists it for next launch.
 
@@ -77,6 +83,23 @@ The bundled `Info.plist` already declares the keys the app needs:
 ### State pill
 
 The pill in the top-left navigation bar reflects the live `SessionState` from the backend: `idle`, `starting`, `running`, `paused`, `stopping`, `reconnecting`, or `error` (an unrecognized value shows as `unknown`). It is color-coded — green for running, orange for paused, yellow for stopping/reconnecting, blue for starting, red for error.
+
+### Identity and following
+
+Settings → **Identity** holds this phone's UUID, sent as `X-Client-Id` on every
+request so the backend can route it to its own session. It defaults to the
+device name and can be anything unique; **Save** calls `POST /api/bind` and the
+backend returns `409` if another device already holds it. With a single device
+it binds automatically. With several, pick this iPhone under Settings → Device
+first.
+
+Map → **Follow** watches another phone's session. *Watch on map only* mirrors
+the leader's position onto your map and leaves your GPS alone; *mirror onto this
+phone* spoofs your GPS along the leader's route until you tap Stop. See the
+top-level [`README.md`](../README.md) for the backend side.
+
+If the live connection drops while you're on another tab, the Settings tab picks
+up an unread badge; opening Settings clears it.
 
 ### Step companions
 

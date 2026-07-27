@@ -3,19 +3,22 @@
 The backend and web UI are pure Python and run on Windows unchanged. The GPS
 injection has two device paths:
 
-- **iPhone (primary)** — via `pymobiledevice3`'s RemoteXPC tunnel. The tunnel is
-  the tricky part on Windows; its reliability is what the [reliability
-  gate](#reliability-gate) below measures.
-- **Android (fallback)** — via `adb` against a **rooted Android 12+** phone. No
-  app on the phone. `adb` is fully cross-platform, so this path is the most
-  reliable on Windows.
+- **iPhone** — via `pymobiledevice3`'s RemoteXPC tunnel. The tunnel is the tricky
+  part on Windows; see [which path to use](#which-path-to-use) below.
+- **Android** — via `adb` against a **rooted Android 12+** phone, nothing
+  installed on the phone. `adb` is fully cross-platform, so this is the most
+  reliable path on Windows.
 
 The web UI/UX is identical to macOS — devices appear in the same device list.
 
 ## Common prerequisites
 
 1. **Python 3.11+** on PATH (`python --version`).
-2. Clone the repo, then create the venv and install deps:
+2. Clone the repo, then install deps with [uv](https://github.com/astral-sh/uv):
+   ```powershell
+   uv sync
+   ```
+   Or with a plain venv:
    ```powershell
    python -m venv .venv
    .\.venv\Scripts\Activate.ps1
@@ -56,8 +59,8 @@ then enable `pymobiledevice3 lockdown wifi-connections on` (see main README).
 
 ## Path B — iPhone via WSL2 + usbipd-win
 
-Use this if the native path fails the reliability gate. It runs the Linux stack
-under Windows and passes the iPhone USB into WSL.
+Worth trying if the native path won't hold a stable tunnel. It runs the Linux
+stack under Windows and passes the iPhone USB through into WSL.
 
 ### Extra dependencies
 - **WSL2** with a Linux distro (`wsl --install`).
@@ -79,10 +82,10 @@ under Windows and passes the iPhone USB into WSL.
    ```
 Open http://127.0.0.1:8080/ from Windows (WSL forwards localhost).
 
-> Note: USB passthrough adds its own failure surface (re-attach needed after
-> unplug/sleep). This is what the gate measures vs the native path.
+USB passthrough adds its own failure surface — you need to re-attach after an
+unplug or a sleep.
 
-## Path C — Android on Windows (fallback, most reliable)
+## Path C — Android on Windows (most reliable)
 
 ### Extra dependencies
 - **Android Platform-Tools** (`adb`) on PATH.
@@ -98,40 +101,20 @@ Open http://127.0.0.1:8080/ from Windows (WSL forwards localhost).
 Open http://127.0.0.1:8080/, pick a route, press **Walk**. iPhones and Androids
 can be mixed (`--android <serial> --udid <UDID>`).
 
-## Reliability gate
+## Which path to use
 
-Run this on real hardware to decide which iPhone path (if any) to recommend on
-Windows. Run it for **native** and **WSL**, on `--port 8080`.
+Path C (Android) is the reliable one on Windows: `adb` is cross-platform and
+carries none of the tunnel's baggage. Both iPhone paths are **unverified on
+Windows hardware** — the RemoteXPC tunnel is the fragile part, and WSL's USB
+passthrough adds its own failure surface on top. Treat A and B as experimental.
 
-### Procedure
-1. Start the tunnel + backend for the path under test (A or B above).
-2. Start a session in the UI (any short route, ≤ 20 km/h) so injection runs at
-   ~1 Hz continuously.
-3. Let it run **≥ 15 minutes** without touching the tunnel window.
-4. Midway, **unplug the USB cable, wait ~5 s, replug** (native), or
-   `usbipd detach`/`attach` (WSL). Confirm the session auto-recovers without
-   restarting the backend.
-5. Read the periodic `location.set reliability: N/M ok (X%)` lines from the
-   backend log (emitted ~once a minute).
-
-### Pass criteria (all must hold)
-- ≥ 15 min continuous injection with **no stall**.
-- **0** manual `tunneld` restarts during the run.
-- `set()` success rate **≥ 99%** (from the reliability log line).
-- Recovered from the one USB reconnect without a backend restart.
-
-### Outcome
-- **PASS (native and/or WSL):** document the passing path(s) as supported; mark
-  the more reliable one as recommended.
-- **FAIL (both):** recommend **Path C (Android)**; keep the iPhone paths as
-  "experimental" with the measured caveats.
-
-### Results (fill in)
-
-| Path | Date | Minutes | set() success % | USB reconnect recovered | Verdict |
-|------|------|---------|-----------------|--------------------------|---------|
-| A — native iPhone | | | | | |
-| B — WSL iPhone | | | | | |
+To check either path on your own hardware, soak it: start a session on
+`--port 8080` and leave it injecting at ~1 Hz for 15+ minutes without touching
+the tunnel window, unplugging and replugging the cable (or
+`usbipd detach`/`attach`) once midway. The backend logs
+`location.set reliability: N/M ok (X%)` about once a minute. What you want to
+see is no stall, no manual `tunneld` restart, a success rate at or above 99%,
+and recovery from the reconnect without restarting the backend.
 
 ## Troubleshooting
 

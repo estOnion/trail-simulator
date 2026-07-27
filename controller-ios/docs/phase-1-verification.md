@@ -1,4 +1,4 @@
-# Phase 1 — On-Device Verification (Task 12)
+# On-Device Verification Checklist
 
 Manual end-to-end verification of the TrailController iOS app against the trail-simulator backend.
 Fill in **Result** (✅ / ❌) and **Notes** as you go.
@@ -20,7 +20,7 @@ Fill in **Result** (✅ / ❌) and **Notes** as you go.
 
 | # | Step | Result | Notes |
 |---|------|--------|-------|
-| 0.1 | Backend started: `uv run trail-simulator --host 0.0.0.0 --port 8787` | | |
+| 0.1 | Backend started: `uv run trail-simulator --host 0.0.0.0 --port 8080` (not 8787 — RSD tunnel collision) | | |
 | 0.2 | App launches without crash; state pill shows `idle` | | |
 | 0.3 | (Device only) Settings → enter Mac LAN IP → **Test connection** → `OK — state: idle` → **Save** | | |
 | 0.4 | (Device only) Granted Location + Local Network permission prompts | | |
@@ -59,8 +59,18 @@ Fill in **Result** (✅ / ❌) and **Notes** as you go.
 
 | # | Step | Expected | Result | Notes |
 |---|------|----------|--------|-------|
-| 4.1 | Connect a companion-ios device | Panel lists it (label, UDID, total acked) | | |
-| 4.2 | No companions connected | Panel shows "No step companions connected." | | |
+| 4.1 | Enable the Health tab's step writing | Panel lists this device's `/ws/steps` connection (label, UDID, total acked) | | |
+| 4.2 | Nothing attached to `/ws/steps` | Panel shows "No step companions connected." | | |
+
+## 5. Identity and following
+
+| # | Step | Expected | Result | Notes |
+|---|------|----------|--------|-------|
+| 5.1 | Settings → Identity → save a UUID already held by another device | Rejected; backend returns 409 | | |
+| 5.2 | Single device connected, fresh install | UUID auto-binds with no device picking | | |
+| 5.3 | Map → Follow → *watch on map only* | Leader's position tracks on your map; your GPS untouched | | |
+| 5.4 | Map → Follow → *mirror onto this phone* | Your spoofed GPS follows the leader; Stop ends it | | |
+| 5.5 | Kill the backend while on the Map tab | Settings tab shows an unread badge; opening Settings clears it | | |
 
 ---
 
