@@ -20,7 +20,7 @@ def build_ws_router(manager: SessionManager, registry: DeviceRegistry) -> APIRou
         if client:
             udid = registry.resolve_client(client)
             if udid is None:
-                udid = registry.auto_bind_single(client)
+                udid = registry.auto_bind(client)
         else:
             udid = registry.resolve(device) if device else None
             if udid is None:

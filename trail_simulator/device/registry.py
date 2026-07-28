@@ -112,10 +112,22 @@ class DeviceRegistry:
     def client_for(self, udid: str) -> str | None:
         return self._udid_to_client.get(udid)
 
-    def auto_bind_single(self, client_id: str) -> str | None:
-        if len(self._by_udid) != 1:
+    def auto_bind(self, client_id: str) -> str | None:
+        """Bind `client_id` to a device without an explicit POST /api/bind.
+
+        Two signals, tried in order:
+          1. `client_id` matches a registered DeviceName exactly. The iOS app
+             defaults its identity to UIDevice.current.name, so a phone that
+             has not overridden it in Settings names itself.
+          2. Exactly one device is registered, so there is nothing to guess.
+        Returns None when neither applies, or when the device that would be
+        chosen is already held by another client.
+        """
+        udid = self._by_name.get(client_id)
+        if udid is None and len(self._by_udid) == 1:
+            udid = next(iter(self._by_udid))
+        if udid is None:
             return None
-        udid = next(iter(self._by_udid))
         existing = self._udid_to_client.get(udid)
         if existing is not None and existing != client_id:
             return None

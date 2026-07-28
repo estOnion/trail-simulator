@@ -34,6 +34,15 @@ def test_ws_live_by_client_id(tmp_path):
         assert snap["state"] == "idle"
 
 
+def test_ws_live_auto_binds_client_named_after_its_device(tmp_path):
+    # Two devices connected, so the single-device rule cannot apply; the
+    # client id matches a device name, which is enough to route it.
+    client = _app(tmp_path)
+    with client.websocket_connect("/ws/live?client=Spare") as ws:
+        snap = json.loads(ws.receive_text())
+        assert snap["state"] == "idle"
+
+
 def test_ws_live_unbound_client_closed(tmp_path):
     client = _app(tmp_path)
     connected = False

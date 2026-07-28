@@ -95,15 +95,29 @@ controls.
 
 ### Without a cable
 
-Pair over USB once, then:
+Pair over USB and accept Trust, then enable Wi-Fi visibility — Trust alone is
+not enough. Either tick **Show this iPhone when on Wi-Fi** in Finder → iPhone →
+General, or, while still cabled:
 
 ```bash
-python3 -m pymobiledevice3 lockdown wifi-connections on
+pymobiledevice3 lockdown wifi-connections --state on --udid <UDID>
+pymobiledevice3 lockdown wifi-connections --udid <UDID>   # reads it back
 ```
 
-Unplug. As long as the phone shares a LAN with the Mac and tunneld is running,
-preflight finds it over Bonjour/RemoteXPC. The first discovery after tunneld
-starts can be slow; trail-simulator polls for ~8 s before giving up.
+Unplug, then confirm the phone advertises itself:
+
+```bash
+dns-sd -B _apple-mobdev2._tcp   # one Add line per Wi-Fi-visible device
+```
+
+If it's missing, unlock the phone and toggle Wi-Fi off and on — iOS only
+re-announces on a network transition — and check it shares a subnet with the
+Mac. The instance name is a MAC address, but iOS uses a private Wi-Fi address
+per network, so it won't match `lockdown info`.
+
+Once it appears and tunneld is running, preflight finds it over
+Bonjour/RemoteXPC. The first discovery after tunneld starts can be slow;
+trail-simulator polls for ~8 s before giving up.
 
 ### Address search
 
@@ -127,7 +141,9 @@ Requests are routed to a session by identity. TrailController sends a UUID as
 frontend falls back to `X-Device-Name`, the iPhone's name from Settings →
 General → About → Name. Two devices can't register the same name or the same
 UUID — a conflicting `POST /api/bind` gets a `409`, and a duplicate name is
-refused at registration.
+refused at registration. An unknown identity binds itself when it matches a
+connected device's name, or when only one device is connected; anything else
+needs an explicit `POST /api/bind`.
 
 ```bash
 curl http://127.0.0.1:8080/api/devices
@@ -156,7 +172,9 @@ client reconnects on its own backoff.
 the phone's name isn't in the registry — check `/api/devices` and rename the
 phone or relaunch with the right `--udid`. `Multiple devices registered; send
 X-Device-Name header` means a request arrived without an identity header while
-more than one device is registered, which only affects custom tooling.
+more than one device is registered, which only affects custom tooling. A `403`
+on `/ws/live` is an identity that couldn't auto-bind — usually a client id
+overridden in Settings → Identity so it no longer matches its device name.
 
 ## Rooted Android
 

@@ -75,7 +75,7 @@ def build_router(
         if cid:
             udid = registry.resolve_client(cid)
             if udid is None:
-                udid = registry.auto_bind_single(cid)
+                udid = registry.auto_bind(cid)
             if udid is None:
                 raise HTTPException(
                     status_code=400,

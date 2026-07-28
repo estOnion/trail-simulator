@@ -51,19 +51,43 @@ def test_bind_udid_owned_by_other_client_raises():
 
 def test_auto_bind_single():
     r = _reg(("UDID-A", "Jack"))
-    assert r.auto_bind_single("uuid-x") == "UDID-A"
+    assert r.auto_bind("uuid-x") == "UDID-A"
     assert r.resolve_client("uuid-x") == "UDID-A"
 
 
-def test_auto_bind_single_none_when_multiple():
+def test_auto_bind_none_when_multiple_and_no_name_match():
     r = _reg(("UDID-A", "Jack"), ("UDID-B", "Spare"))
-    assert r.auto_bind_single("uuid-x") is None
+    assert r.auto_bind("uuid-x") is None
 
 
 def test_auto_bind_single_none_when_already_bound_to_other():
     r = _reg(("UDID-A", "Jack"))
     r.bind("owner", "UDID-A")
-    assert r.auto_bind_single("intruder") is None
+    assert r.auto_bind("intruder") is None
+
+
+def test_auto_bind_by_device_name_with_multiple_devices():
+    # The app defaults its client id to the device name, so each phone
+    # binds to itself even when the single-device rule cannot apply.
+    r = _reg(("UDID-A", "Jack"), ("UDID-B", "Anna"))
+    assert r.auto_bind("Anna") == "UDID-B"
+    assert r.auto_bind("Jack") == "UDID-A"
+    assert r.client_for("UDID-B") == "Anna"
+
+
+def test_auto_bind_by_name_none_when_that_device_is_taken():
+    r = _reg(("UDID-A", "Jack"), ("UDID-B", "Anna"))
+    r.bind("someone-else", "UDID-B")
+    assert r.auto_bind("Anna") is None
+
+
+def test_auto_bind_unknown_name_falls_back_to_single_device_rule():
+    # An overridden client id matches no device name, so the outcome is
+    # decided entirely by how many devices are connected.
+    r = _reg(("UDID-A", "Jack"))
+    assert r.auto_bind("Ghost") == "UDID-A"
+    r2 = _reg(("UDID-A", "Jack"), ("UDID-B", "Anna"))
+    assert r2.auto_bind("Ghost") is None
 
 
 def test_force_bind_takes_over_device_from_another_client():
