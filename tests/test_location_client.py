@@ -74,6 +74,78 @@ async def test_set_does_not_hang_when_device_stalls(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_set_retry_failure_surfaces_device_unavailable(monkeypatch):
+    # Tunnel transport died (e.g. Wi-Fi drop → OSError 49): both the first
+    # attempt and the retry after reconnect fail. The caller must see
+    # DeviceUnavailable — a raw OSError would bypass the controller's
+    # device-error/auto-resume path.
+    monkeypatch.setattr(
+        location,
+        "SETTINGS",
+        SimpleNamespace(device_set_timeout_s=0.05, reconnect_max_backoff_s=0.01),
+    )
+    client = LocationClient()
+
+    class DeadLoc:
+        async def set(self, lat, lon):
+            raise OSError(49, "Can't assign requested address")
+
+    client._loc = DeadLoc()
+
+    async def fake_reconnect():
+        client._loc = DeadLoc()  # "reconnected", but transport is still dead
+
+    monkeypatch.setattr(client, "_reconnect", fake_reconnect)
+
+    with pytest.raises(DeviceUnavailable):
+        await client.set(25.0, 121.0)
+
+
+@pytest.mark.asyncio
+async def test_reconnect_discards_dead_session_first(monkeypatch):
+    # A dead DVT session's context managers must be exited before a new
+    # connection is built — otherwise the dead transport's reader tasks
+    # keep erroring ("data transfer failed") for the rest of the run.
+    monkeypatch.setattr(
+        location,
+        "SETTINGS",
+        SimpleNamespace(device_set_timeout_s=0.05, reconnect_max_backoff_s=0.01),
+    )
+
+    async def no_sleep(_s):
+        pass
+
+    monkeypatch.setattr(location.asyncio, "sleep", no_sleep)
+
+    client = LocationClient()
+
+    class FakeCM:
+        def __init__(self):
+            self.exited = 0
+
+        async def __aexit__(self, *a):
+            self.exited += 1
+
+    dead_loc_cm, dead_dvt_cm = FakeCM(), FakeCM()
+    client._loc = object()
+    client._loc_cm = dead_loc_cm
+    client._dvt_cm = dead_dvt_cm
+
+    new_loc = object()
+
+    async def fake_connect():
+        client._loc = new_loc
+
+    monkeypatch.setattr(client, "_connect", fake_connect)
+
+    await client._reconnect()
+
+    assert dead_loc_cm.exited == 1
+    assert dead_dvt_cm.exited == 1
+    assert client._loc is new_loc
+
+
+@pytest.mark.asyncio
 async def test_set_counts_success(monkeypatch):
     client = LocationClient()
 

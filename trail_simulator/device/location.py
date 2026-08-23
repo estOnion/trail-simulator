@@ -79,7 +79,16 @@ class LocationClient:
             log.warning("location.set failed: %s — reconnecting", e)
             await self._reconnect()
             if self._loc is not None:
-                await self._set_with_timeout(lat, lon)
+                try:
+                    await self._set_with_timeout(lat, lon)
+                except Exception as e2:  # noqa: BLE001
+                    # The rebuilt session died immediately (e.g. Wi-Fi drop →
+                    # OSError 49). Surface DeviceUnavailable so the controller
+                    # takes its device-error/auto-resume path instead of a raw
+                    # OSError landing in its "unexpected" branch.
+                    raise DeviceUnavailable(
+                        f"device connection lost: {e2}"
+                    ) from e2
         finally:
             self._maybe_log_reliability()
 
@@ -128,12 +137,33 @@ class LocationClient:
                 pass
 
     # ------------------------------------------------------------------ #
+    async def _discard_connection(self) -> None:
+        """Close out a dead DVT session without touching the device.
+
+        The context managers own the tunnel transport's background reader
+        tasks; exiting them stops those tasks from erroring forever after the
+        transport died (e.g. Wi-Fi drop → OSError 49). Errors are ignored —
+        the connection underneath is already gone."""
+        loc_cm, dvt_cm = self._loc_cm, self._dvt_cm
+        self._loc = None
+        self._loc_cm = None
+        self._dvt_cm = None
+        self._provider = None
+        for cm in (loc_cm, dvt_cm):
+            if cm is None:
+                continue
+            try:
+                await cm.__aexit__(None, None, None)
+            except Exception:  # noqa: BLE001
+                pass
+
     async def _reconnect(self) -> None:
         if self._reconnecting:
             return
         self._reconnecting = True
         backoff = 1.0
         try:
+            await self._discard_connection()
             for _ in range(6):
                 await asyncio.sleep(backoff)
                 try:

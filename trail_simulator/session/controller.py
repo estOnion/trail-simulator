@@ -556,7 +556,10 @@ class SessionController:
         except RouteError as e:
             self._last_error = f"route: {e}"
             self._state = SessionState.error
-        except (DeviceUnavailable, TimeoutError) as e:
+        except (DeviceUnavailable, TimeoutError, OSError) as e:
+            # OSError: the tunnel transport died out from under us (e.g.
+            # Wi-Fi drop → errno 49) — same recovery path as DeviceUnavailable
+            # so auto-resume kicks in once the device is reachable again.
             self._last_error = f"device: {e}"
             self._state = SessionState.error
         except Exception as e:  # noqa: BLE001
@@ -681,7 +684,7 @@ class SessionController:
 
             try:
                 await self._device.set(wp.lat, wp.lon)
-            except (DeviceUnavailable, TimeoutError) as e:
+            except (DeviceUnavailable, TimeoutError, OSError) as e:
                 self._last_error = f"device: {e}"
                 self._state = SessionState.error
                 return (prev_lat, prev_lon)
