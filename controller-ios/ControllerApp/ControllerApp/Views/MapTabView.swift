@@ -47,7 +47,7 @@ struct MapTabView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    MapStatePill(state: store.state)
+                    MapStatePill(state: store.state, detail: store.latest?.lastError)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showFollow = true } label: {
@@ -72,7 +72,33 @@ struct MapTabView: View {
 
 private struct MapStatePill: View {
     let state: SessionState
+    /// Backend `last_error` for the current snapshot. When present the pill
+    /// becomes tappable and shows the full message in an alert, since the
+    /// toolbar is too narrow to render it inline.
+    let detail: String?
+    @State private var showDetail = false
+
     var body: some View {
+        if let detail, !detail.isEmpty {
+            Button { showDetail = true } label: {
+                HStack(spacing: 3) {
+                    label
+                    Image(systemName: "info.circle").font(.caption2)
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(color)
+            .alert("Session \(state.rawValue)", isPresented: $showDetail) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(detail)
+            }
+        } else {
+            label
+        }
+    }
+
+    private var label: some View {
         Text(state.rawValue)
             .font(.caption).bold()
             .padding(.horizontal, 8).padding(.vertical, 3)
