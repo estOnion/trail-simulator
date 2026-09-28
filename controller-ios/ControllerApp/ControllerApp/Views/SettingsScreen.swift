@@ -56,6 +56,7 @@ struct SettingsScreen: View {
                         Text(m.text)
                             .font(.caption)
                             .foregroundStyle(m.isError ? .red : .secondary)
+                            .textSelection(.enabled)
                     }
                 }
 
@@ -259,15 +260,19 @@ struct SettingsScreen: View {
             return
         }
         saving = true; defer { saving = false }
-        let tester = BackendClient(baseURL: url)
+        // Probe with the same identity the live connection will use, so a
+        // binding problem shows up here instead of only after "Connect".
+        let tester = BackendClient(baseURL: url, deviceName: config.deviceName, clientId: config.clientId)
         do {
             let snap = try await tester.fetchStatus()
             probeMessage = .ok("OK — state: \(snap.state.rawValue)")
             await loadDevices()
         } catch let BackendError.transport(msg) {
             probeMessage = .failure("Can't reach backend — \(friendlyTransport(msg))")
-        } catch let BackendError.server(code, _) {
-            probeMessage = .failure("Backend error (HTTP \(code))")
+        } catch let BackendError.server(code, detail) {
+            // The backend answered, so the network is fine; the detail says
+            // which device/identity scenario it rejected.
+            probeMessage = .failure("Backend reachable but rejected the request (HTTP \(code)): \(detail)")
         } catch let BackendError.routing(msg) {
             probeMessage = .failure("Routing error — \(msg)")
         } catch let urlErr as URLError {

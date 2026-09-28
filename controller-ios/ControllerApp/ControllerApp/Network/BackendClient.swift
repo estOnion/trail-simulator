@@ -192,7 +192,11 @@ actor BackendClient {
         case 502:
             throw BackendError.routing(detail as? String ?? "routing error")
         default:
-            throw BackendError.server(http.statusCode, String(describing: detail))
+            // `detail` is Any?; describing it directly yields "Optional(...)".
+            let msg = (detail as? String)
+                ?? detail.map { String(describing: $0) }
+                ?? "no detail from server"
+            throw BackendError.server(http.statusCode, msg)
         }
     }
 }
