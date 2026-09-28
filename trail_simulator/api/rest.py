@@ -14,6 +14,7 @@ from ..device.registry import (
 )
 from ..geocode import GeocodeError, search as geocode_search
 from ..routing.osrm import RouteError
+from .diagnostics import explain_unroutable
 from ..session.controller import SessionController
 from ..session.manager import SessionManager
 
@@ -79,7 +80,11 @@ def build_router(
             if udid is None:
                 raise HTTPException(
                     status_code=400,
-                    detail="Unbound client id; POST /api/bind to choose a device.",
+                    detail=(
+                        f"Unbound client id: "
+                        f"{explain_unroutable(registry, cid, None)}. "
+                        f"POST /api/bind to choose a device."
+                    ),
                 )
             return manager.get_or_create(udid)
 
@@ -94,14 +99,16 @@ def build_router(
         if udid is None:
             udid = registry.default_udid()
         if udid is None:
+            reason = explain_unroutable(registry, None, name)
             if name is None:
                 raise HTTPException(
                     status_code=400,
-                    detail="Multiple devices registered; send X-Device-Name header.",
+                    detail=f"Cannot pick a device: {reason}. "
+                    f"Send X-Client-Id or X-Device-Name.",
                 )
             raise HTTPException(
                 status_code=404,
-                detail=f"No backend device registered for name {name!r}.",
+                detail=f"No backend device registered for name {name!r}: {reason}.",
             )
         return manager.get_or_create(udid)
 

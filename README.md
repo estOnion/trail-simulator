@@ -168,13 +168,22 @@ python -m trail_simulator --port 8080 --mirror --udid 00008140-... --udid 000081
 Per-device failures are logged but don't abort the shared session; each inner
 client reconnects on its own backoff.
 
-**When a device won't bind:** `No backend device registered for name 'X'` means
-the phone's name isn't in the registry — check `/api/devices` and rename the
-phone or relaunch with the right `--udid`. `Multiple devices registered; send
-X-Device-Name header` means a request arrived without an identity header while
-more than one device is registered, which only affects custom tooling. A `403`
-on `/ws/live` is an identity that couldn't auto-bind — usually a client id
-overridden in Settings → Identity so it no longer matches its device name.
+**When a device won't bind:** every 400/404 from the REST API and every
+`/ws/live` rejection carries the same diagnostic, so "Test connection" in the
+app shows which scenario you are in:
+
+- `no devices registered — is the iPhone connected and paired?` — the backend
+  found nothing at startup. Plug in or pair the phone and restart, then check
+  `/api/devices`.
+- `client 'X' does not match any device name; expected one of [...]` — the
+  client id (Settings → Identity, defaults to the phone's name) matches none of
+  the registered names. Rename it or `POST /api/bind`.
+- `device 'X' is already bound to client 'Y'` — another client holds that
+  phone; disconnect it or bind a different device.
+- `no client/device specified and N devices are connected` — a request arrived
+  without an identity header while several devices are registered. Only affects
+  custom tooling; the app and web UI always send one.
+- `unknown device 'X'; expected one of [...]` — a stale `X-Device-Name`.
 
 ## Rooted Android
 

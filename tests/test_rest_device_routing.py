@@ -134,3 +134,52 @@ def test_devices_includes_type(tmp_path):
     by_name = {d["name"]: d for d in body["devices"]}
     assert by_name["Jack iPhone"]["type"] == "ios"
     assert by_name["Pixel 7"]["type"] == "android"
+
+
+# --- diagnostic detail: a 400/404 must say which scenario the caller is in ---
+
+
+def test_status_400_no_devices_explains_no_devices(tmp_path):
+    client = _make_app(tmp_path, [])
+    resp = client.get("/api/status")
+    assert resp.status_code == 400
+    assert "no devices registered" in resp.json()["detail"]
+
+
+def test_status_400_ambiguous_lists_device_names(tmp_path):
+    client = _make_app(tmp_path, [("UDID-A", "Jack"), ("UDID-B", "Spare")])
+    detail = client.get("/api/status").json()["detail"]
+    assert "2 devices are connected" in detail
+    assert "Jack" in detail and "Spare" in detail
+    assert "X-Client-Id" in detail
+
+
+def test_status_400_unbound_client_with_no_devices(tmp_path):
+    client = _make_app(tmp_path, [])
+    resp = client.get("/api/status", headers={"X-Client-Id": "Anna"})
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert detail.startswith("Unbound client id")
+    assert "no devices registered" in detail
+
+
+def test_status_400_unbound_client_lists_device_names(tmp_path):
+    client = _make_app(tmp_path, [("UDID-A", "Jack"), ("UDID-B", "Spare")])
+    detail = client.get("/api/status", headers={"X-Client-Id": "Anna"}).json()["detail"]
+    assert "'Anna' does not match any device name" in detail
+    assert "Jack" in detail and "Spare" in detail
+    assert "/api/bind" in detail
+
+
+def test_status_400_unbound_client_names_current_holder(tmp_path):
+    client = _make_app(tmp_path, [("UDID-A", "Jack")])
+    assert client.get("/api/status", headers={"X-Client-Id": "uuid-1"}).status_code == 200
+    detail = client.get("/api/status", headers={"X-Client-Id": "Anna"}).json()["detail"]
+    assert "'Jack' is already bound to client 'uuid-1'" in detail
+
+
+def test_status_404_unknown_name_lists_device_names(tmp_path):
+    client = _make_app(tmp_path, [("UDID-A", "Jack"), ("UDID-B", "Spare")])
+    detail = client.get("/api/status", headers={"X-Device-Name": "Ghost"}).json()["detail"]
+    assert "unknown device 'Ghost'" in detail
+    assert "Jack" in detail and "Spare" in detail
