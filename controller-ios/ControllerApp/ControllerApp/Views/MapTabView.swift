@@ -89,6 +89,7 @@ private struct MapStatePill: View {
             .buttonStyle(.plain)
             .foregroundStyle(color)
             .alert("Session \(state.rawValue)", isPresented: $showDetail) {
+                Button("Copy") { UIPasteboard.general.string = detail }
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(detail)
