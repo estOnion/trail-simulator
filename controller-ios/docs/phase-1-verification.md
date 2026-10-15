@@ -54,6 +54,7 @@ Fill in **Result** (✅ / ❌) and **Notes** as you go.
 | 3.3 | Tap **Reset pins** | Both pins + breadcrumb cleared | | |
 | 3.4 | Background the app, then foreground | WS reconnects; pill returns to live state | | |
 | 3.5 | Stop the backend mid-session | App surfaces transport/connection error gracefully | | |
+| 3.6 | Leave the session in `error` (for example Walk between two pins OSRM cannot route), then place a fresh Start and End pin | Pill shows the error; **Walk**, **Stop** and **Reset GPS** are all enabled; tapping **Walk** starts a new walk and the old error clears. Repeat, but tap **Reset GPS** instead: pill → `idle` with no error and is no longer tappable | | |
 
 ## 4. Step companions (optional)
 
