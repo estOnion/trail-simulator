@@ -22,21 +22,21 @@ struct SessionControls: View {
 
             HStack(spacing: 8) {
                 primaryButton
-                if store.state == .running {
+                if store.state.showsPause {
                     Button("Pause") { Task { await action { try await client.pause() } } }
                         .buttonStyle(.bordered)
                 }
-                if store.state == .paused {
+                if store.state.showsResume {
                     Button("Resume") { Task { await action { try await client.resume() } } }
                         .buttonStyle(.bordered)
                 }
-                if [.starting, .running, .paused, .reconnecting].contains(store.state) {
+                if store.state.showsStop {
                     Button("Stop", role: .destructive) {
                         Task { await action { try await client.stop() } }
                     }
                     .buttonStyle(.bordered)
                 }
-                if store.state == .idle, store.currentPosition != nil {
+                if store.state.showsResetGPS(hasPosition: store.currentPosition != nil) {
                     Button("Reset GPS", role: .destructive) {
                         Task {
                             await action { try await client.reset() }
@@ -66,7 +66,7 @@ struct SessionControls: View {
 
     @ViewBuilder
     private var primaryButton: some View {
-        let canStart = store.pinSelectionStage == .ready && store.state == .idle
+        let canStart = store.state.canStartWalk(pinStage: store.pinSelectionStage, inFlight: inFlight)
         Button {
             Task { await startSession(skipCooldown: false) }
         } label: {
@@ -74,7 +74,7 @@ struct SessionControls: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(!canStart || inFlight)
+        .disabled(!canStart)
     }
 
     private func startSession(skipCooldown: Bool) async {
