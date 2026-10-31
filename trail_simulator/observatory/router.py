@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Query
-from pydantic import AwareDatetime, BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field, field_validator
 
 from . import catalogue
 from .identity import Identity
@@ -14,7 +14,7 @@ from .journal import IncidentFilter, Journal
 
 
 class ClientReport(BaseModel):
-    report_id: UUID
+    report_id: str
     code: str
     message: str
     started_at: AwareDatetime
@@ -22,6 +22,12 @@ class ClientReport(BaseModel):
     attempts: int = Field(..., ge=0)
     app_build: str
     os_version: str
+
+    @field_validator("report_id")
+    @classmethod
+    def _is_uuid(cls, v: str) -> str:
+        UUID(v)  # ValueError becomes a 422
+        return v
 
 
 class ReportBatch(BaseModel):
@@ -72,12 +78,15 @@ def build_incident_router(journal: Journal, identity: Identity, registry: Any) -
         accepted: list[dict] = []
         duplicates: list[str] = []
         for rep in batch.reports:
-            rid = str(rep.report_id)
-            if journal.has_report(rid):
+            # Echo the ID as sent; compare and store it as a UUID value, so
+            # letter case never makes a stored report look new.
+            rid = rep.report_id
+            canonical = str(UUID(rid))
+            if journal.has_report(canonical):
                 duplicates.append(rid)
                 continue
             ref = journal.add_client_failure(
-                report_id=rid,
+                report_id=canonical,
                 code=rep.code,
                 message=rep.message,
                 started_at=rep.started_at.timestamp() + offset,

@@ -75,7 +75,7 @@ app calls.
 | GET | `/api/incident-codes` | — | `{codes:[{code, kinds, remedy}]}` | — |
 
 Client failure codes: `client.unreachable`, `client.live_dropped`,
-`client.timeout`, `client.undecodable`. Reports are idempotent by `report_id`;
+`client.timeout`, `client.undecodable`. Reports are idempotent by `report_id`, compared as a UUID value, so letter case never makes a stored report look new; each ID is echoed in `accepted` and `duplicates` exactly as the client sent it;
 the backend corrects the report's times for the difference between `sent_at` and
 its own clock. The reporting endpoint takes `X-Client-Id` when sent but never
 refuses a report for lack of a device. The other incident endpoints ignore the

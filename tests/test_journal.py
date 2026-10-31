@@ -305,3 +305,22 @@ def test_backend_version_has_package_version_and_a_suffix():
     v = backend_version()
     assert v.startswith("0.1.0")
     assert "+" in v
+
+
+def test_version_is_resolved_at_startup_not_on_the_first_record(tmp_path, monkeypatch):
+    import trail_simulator.observatory.journal as journal_mod
+
+    calls = []
+
+    def fake_version():
+        calls.append(1)
+        return "9.9+test"
+
+    monkeypatch.setattr(journal_mod, "backend_version", fake_version)
+    j = Journal(tmp_path / "j.db")
+    assert calls == [1]                    # resolved by the constructor
+
+    ref = j.record("rejection", "safety.cooldown", "m")
+    j.record("fault", "unexpected", "m")
+    assert calls == [1]                    # recording never resolves it again
+    assert j.get(ref["id"])["backend_version"] == "9.9+test"

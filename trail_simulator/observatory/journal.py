@@ -178,7 +178,9 @@ class Journal:
         self.path = Path(path)
         self.clock = clock
         self._log_buffer = log_buffer
-        self._version = version
+        # Resolved once here, at startup, so recording never shells out to git
+        # on the event loop.
+        self._version = version if version is not None else backend_version()
         self._conn = sqlite3.connect(
             self.path, isolation_level=None, check_same_thread=False
         )
@@ -195,8 +197,6 @@ class Journal:
 
     @property
     def version(self) -> str:
-        if self._version is None:
-            self._version = backend_version()
         return self._version
 
     # ------------------------------------------------------------------ #

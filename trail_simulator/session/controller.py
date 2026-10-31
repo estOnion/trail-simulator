@@ -278,6 +278,10 @@ class SessionController:
                 )
                 if not decision.allowed:
                     self._last_error = decision.reason
+                    # The refusal's incident is attached by note_incident once
+                    # the REST layer has recorded it; never pair this text with
+                    # an older incident in the meantime.
+                    self._last_incident = None
                     self._cooldown_until = time.time() + decision.required_wait_s
                     await self._broadcast()
                     return decision

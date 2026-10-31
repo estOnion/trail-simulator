@@ -269,3 +269,32 @@ async def test_a_broken_journal_does_not_disturb_the_session(rig, monkeypatch):
     assert c._state == SessionState.error
     snap = c.status()
     assert snap.last_error.startswith("route: ") and snap.last_incident is None
+
+
+@pytest.mark.asyncio
+async def test_refused_start_never_pairs_the_cooldown_text_with_an_older_incident(rig, monkeypatch):
+    make, journal = rig
+
+    async def no_route(a, b, c, d):
+        raise RouteError("x", code="route.no_route")
+
+    monkeypatch.setattr(controller_mod, "fetch_walking_route", no_route)
+    c = make(FakeDevice())
+    await c.start(0.0, 0.0, [(0.0, 0.001)], speed_kmh=4.0)
+    await _run_to_end(c)
+    assert c.status().last_incident["code"] == "route.no_route"   # the older incident
+
+    seen = []
+
+    async def listener(snap):
+        seen.append(snap)
+
+    c.add_listener(listener)
+    c._store.set_last_fix(0.0, 0.0)          # a far start now trips the cooldown
+    decision = await c.start(50.0, 50.0, [(50.0, 50.001)], speed_kmh=4.0)
+
+    assert not decision.allowed
+    assert seen, "the refusal broadcasts a snapshot"
+    first = seen[0]
+    assert first.last_error == decision.reason
+    assert first.last_incident is None        # not the stale route.no_route one

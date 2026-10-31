@@ -193,3 +193,30 @@ def test_report_for_an_outage_is_explained_against_availability(rig):
 
     row = journal.get(body["accepted"][0]["id"])
     assert row["host_during_outage"] == "partly"
+
+
+def test_report_id_is_echoed_as_sent_and_compared_as_a_uuid(rig):
+    client, journal, _ = rig
+    rid = str(uuid.uuid4())
+    upper = rid.upper()
+
+    first = _post(client, [_report(report_id=upper)]).json()
+    assert [a["report_id"] for a in first["accepted"]] == [upper]      # echoed as sent
+
+    again_lower = _post(client, [_report(report_id=rid)]).json()
+    assert again_lower["accepted"] == []
+    assert again_lower["duplicates"] == [rid]                          # echoed as sent
+    again_upper = _post(client, [_report(report_id=upper)]).json()
+    assert again_upper["duplicates"] == [upper]
+    assert len(journal.list()[0]) == 1
+
+
+def test_lowercase_upload_then_uppercase_is_one_report(rig):
+    client, journal, _ = rig
+    rid = str(uuid.uuid4())
+    _post(client, [_report(report_id=rid)])
+
+    body = _post(client, [_report(report_id=rid.upper())]).json()
+
+    assert body["accepted"] == [] and body["duplicates"] == [rid.upper()]
+    assert len(journal.list()[0]) == 1
