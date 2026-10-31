@@ -30,6 +30,7 @@ async def test_no_route_names_the_pins_not_the_server(monkeypatch):
     assert "no walking route" in msg
     assert "NoRoute" in msg
     assert "reset the pins" in msg
+    assert ei.value.code == "route.no_route"
 
 
 @pytest.mark.asyncio
@@ -44,6 +45,7 @@ async def test_other_osrm_rejection_includes_code_and_message(monkeypatch):
         await fetch_walking_route(0, 0, 1, 1, base="http://osrm")
     assert "InvalidQuery" in str(ei.value)
     assert "Query string malformed" in str(ei.value)
+    assert ei.value.code == "route.rejected"
 
 
 @pytest.mark.asyncio
@@ -55,6 +57,7 @@ async def test_non_json_http_error_falls_back_to_generic(monkeypatch):
     with pytest.raises(RouteError) as ei:
         await fetch_walking_route(0, 0, 1, 1, base="http://osrm")
     assert "OSRM request failed" in str(ei.value)
+    assert ei.value.code == "route.service_down"
 
 
 @pytest.mark.asyncio
@@ -66,3 +69,4 @@ async def test_transport_failure_says_unreachable(monkeypatch):
     with pytest.raises(RouteError) as ei:
         await fetch_walking_route(0, 0, 1, 1, base="http://osrm")
     assert "routing service unreachable" in str(ei.value)
+    assert ei.value.code == "route.service_down"

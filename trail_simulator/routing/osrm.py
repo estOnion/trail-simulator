@@ -7,7 +7,11 @@ from ..config import SETTINGS
 
 
 class RouteError(RuntimeError):
-    pass
+    """A route could not be planned. ``code`` is the incident code (ADR-0048)."""
+
+    def __init__(self, message: str = "", code: str = "route.service_down") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def _status_error(e: httpx.HTTPStatusError) -> RouteError:
@@ -30,14 +34,16 @@ def _status_error(e: httpx.HTTPStatusError) -> RouteError:
         return RouteError(
             "no walking route between the selected points (OSRM: NoRoute); "
             "check that origin and destination are on the same landmass, "
-            "then reset the pins"
+            "then reset the pins",
+            code="route.no_route",
         )
     if code:
         return RouteError(
             f"routing service rejected the request (OSRM: {code}: {message}); "
-            f"check the pins"
+            f"check the pins",
+            code="route.rejected",
         )
-    return RouteError(f"OSRM request failed: {e}")
+    return RouteError(f"OSRM request failed: {e}", code="route.service_down")
 
 
 async def fetch_walking_route(
@@ -63,12 +69,15 @@ async def fetch_walking_route(
         except httpx.HTTPError as e:
             raise RouteError(
                 f"routing service unreachable ({e}); the backend could not "
-                f"reach OSRM — check its internet connection"
+                f"reach OSRM — check its internet connection",
+                code="route.service_down",
             ) from e
 
     data = r.json()
     if data.get("code") != "Ok" or not data.get("routes"):
-        raise RouteError(f"OSRM returned no route: {data.get('code')}")
+        raise RouteError(
+            f"OSRM returned no route: {data.get('code')}", code="route.service_down"
+        )
 
     encoded = data["routes"][0]["geometry"]
     return polyline_lib.decode(encoded)  # (lat, lon) pairs

@@ -87,7 +87,8 @@ class LocationClient:
                     # takes its device-error/auto-resume path instead of a raw
                     # OSError landing in its "unexpected" branch.
                     raise DeviceUnavailable(
-                        f"device connection lost: {e2}"
+                        f"device connection lost: {e2}",
+                        code="device.connection_lost",
                     ) from e2
         finally:
             self._maybe_log_reliability()
@@ -175,7 +176,8 @@ class LocationClient:
             raise DeviceUnavailable(
                 "could not reconnect to iPhone — ensure "
                 "'sudo pymobiledevice3 remote tunneld' is running, "
-                "then click Walk to resume"
+                "then click Walk to resume",
+                code="device.tunnel_down",
             )
         finally:
             self._reconnecting = False
@@ -198,31 +200,36 @@ async def _build_service_provider(udid: str | None = None) -> Any:
     from .tunneld import rsd_udid, start_instructions, tunneld_reachable
 
     if not tunneld_reachable():
-        raise DeviceUnavailable(start_instructions())
+        raise DeviceUnavailable(start_instructions(), code="device.tunnel_down")
 
     try:
         rsds = await get_tunneld_devices(TUNNELD_DEFAULT_ADDRESS)
     except Exception as e:
-        raise DeviceUnavailable(f"tunneld query failed: {e}") from e
+        raise DeviceUnavailable(
+            f"tunneld query failed: {e}", code="device.tunnel_down"
+        ) from e
 
     if udid is not None:
         rsds = [r for r in rsds if rsd_udid(r) == udid]
         if not rsds:
             raise DeviceUnavailable(
-                f"Device with udid={udid} is not reachable via tunneld."
+                f"Device with udid={udid} is not reachable via tunneld.",
+                code="device.not_reachable",
             )
 
     if not rsds:
         raise DeviceUnavailable(
             "tunneld is running but reports no devices. "
             "Plug in via USB and tap Trust, or ensure 'wifi-connections on' was enabled "
-            "and the iPhone is on the same network."
+            "and the iPhone is on the same network.",
+            code="device.not_reachable",
         )
 
     if len(rsds) > 1:
         udids = ", ".join(rsd_udid(r) or "<?>" for r in rsds)
         raise DeviceUnavailable(
             f"Multiple devices reachable via tunneld: [{udids}]. "
-            "Pass --udid to pick one."
+            "Pass --udid to pick one.",
+            code="device.multiple",
         )
     return rsds[0]

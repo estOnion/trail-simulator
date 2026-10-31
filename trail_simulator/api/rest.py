@@ -4,7 +4,7 @@ from dataclasses import asdict
 from typing import Awaitable, Callable
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel, Field
 
 from ..device.registry import (
@@ -14,7 +14,8 @@ from ..device.registry import (
 )
 from ..geocode import GeocodeError, search as geocode_search
 from ..routing.osrm import RouteError
-from .diagnostics import explain_unroutable
+from .diagnostics import diagnose_unroutable
+from .errors import CodedHTTPException
 from ..session.controller import SessionController
 from ..session.manager import SessionManager
 
@@ -78,13 +79,12 @@ def build_router(
             if udid is None:
                 udid = registry.auto_bind(cid)
             if udid is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Unbound client id: "
-                        f"{explain_unroutable(registry, cid, None)}. "
-                        f"POST /api/bind to choose a device."
-                    ),
+                why = diagnose_unroutable(registry, cid, None)
+                raise CodedHTTPException(
+                    400,
+                    f"Unbound client id: {why.text}. "
+                    f"POST /api/bind to choose a device.",
+                    why.code,
                 )
             return manager.get_or_create(udid)
 
@@ -99,16 +99,18 @@ def build_router(
         if udid is None:
             udid = registry.default_udid()
         if udid is None:
-            reason = explain_unroutable(registry, None, name)
+            why = diagnose_unroutable(registry, None, name)
             if name is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Cannot pick a device: {reason}. "
+                raise CodedHTTPException(
+                    400,
+                    f"Cannot pick a device: {why.text}. "
                     f"Send X-Client-Id or X-Device-Name.",
+                    why.code,
                 )
-            raise HTTPException(
-                status_code=404,
-                detail=f"No backend device registered for name {name!r}: {reason}.",
+            raise CodedHTTPException(
+                404,
+                f"No backend device registered for name {name!r}: {why.text}.",
+                why.code,
             )
         return manager.get_or_create(udid)
 
@@ -140,14 +142,15 @@ def build_router(
     @r.post("/bind")
     async def bind(req: BindReq):
         if registry.name_for(req.udid) is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No connected device with udid {req.udid!r}.",
+            raise CodedHTTPException(
+                404,
+                f"No connected device with udid {req.udid!r}.",
+                "binding.unknown_device",
             )
         try:
             registry.bind(req.client_id, req.udid)
         except (DuplicateClientIdError, DeviceAlreadyBoundError) as e:
-            raise HTTPException(status_code=409, detail=str(e))
+            raise CodedHTTPException(409, str(e), "binding.conflict")
         return {"ok": True}
 
     @r.post("/rebind")
@@ -156,9 +159,10 @@ def build_router(
         app): force-reassign a device to a new client UUID, evicting the
         previous binding."""
         if registry.name_for(req.udid) is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No connected device with udid {req.udid!r}.",
+            raise CodedHTTPException(
+                404,
+                f"No connected device with udid {req.udid!r}.",
+                "binding.unknown_device",
             )
         registry.force_bind(req.client_id, req.udid)
         return {"ok": True}
@@ -167,12 +171,12 @@ def build_router(
     async def follow(req: FollowReq):
         f_udid = registry.resolve_client(req.follower_client_id)
         if f_udid is None:
-            raise HTTPException(status_code=404, detail="Unknown follower client id.")
+            raise CodedHTTPException(404, "Unknown follower client id.", "follow.unknown_client")
         l_udid = registry.resolve_client(req.leader_client_id)
         if l_udid is None:
-            raise HTTPException(status_code=404, detail="Unknown leader client id.")
+            raise CodedHTTPException(404, "Unknown leader client id.", "follow.unknown_client")
         if f_udid == l_udid:
-            raise HTTPException(status_code=400, detail="A device cannot follow itself.")
+            raise CodedHTTPException(400, "A device cannot follow itself.", "follow.self")
         follower = manager.get_or_create(f_udid)
         leader = manager.get_or_create(l_udid)
         label = registry.name_for(l_udid) or req.leader_client_id
@@ -183,7 +187,7 @@ def build_router(
     async def unfollow(req: UnfollowReq):
         udid = registry.resolve_client(req.client_id)
         if udid is None:
-            raise HTTPException(status_code=404, detail="Unknown client id.")
+            raise CodedHTTPException(404, "Unknown client id.", "follow.unknown_client")
         await manager.get_or_create(udid).unfollow()
         return {"ok": True}
 
@@ -216,16 +220,19 @@ def build_router(
                 skip_cooldown=req.skip_cooldown,
             )
         except RuntimeError as e:
-            raise HTTPException(status_code=409, detail=str(e))
+            raise _conflict(e)
         if not decision.allowed:
-            raise HTTPException(
-                status_code=429,
-                detail={
+            raise CodedHTTPException(
+                429,
+                {
                     "cooldown": True,
                     "required_wait_s": decision.required_wait_s,
                     "jump_km": decision.jump_km,
                     "reason": decision.reason,
                 },
+                "safety.cooldown",
+                # Point the session's status snapshot at this same incident.
+                after_record=controller.note_incident,
             )
         return {"ok": True, "reason": decision.reason}
 
@@ -242,9 +249,9 @@ def build_router(
         try:
             await controller.update_destinations(dests, loop=req.loop)
         except RuntimeError as e:
-            raise HTTPException(status_code=409, detail=str(e))
+            raise _conflict(e)
         except RouteError as e:
-            raise HTTPException(status_code=502, detail=f"route: {e}")
+            raise CodedHTTPException(502, f"route: {e}", e.code)
         return {"ok": True}
 
     @r.post("/speed")
@@ -259,7 +266,7 @@ def build_router(
         try:
             await controller.change_speed(req.speed_kmh)
         except RouteError as e:
-            raise HTTPException(status_code=502, detail=f"route: {e}")
+            raise CodedHTTPException(502, f"route: {e}", e.code)
         return {"ok": True}
 
     @r.post("/pause")
@@ -306,7 +313,7 @@ def build_router(
         try:
             await controller.reset_device()
         except RuntimeError as e:
-            raise HTTPException(status_code=409, detail=str(e))
+            raise _conflict(e)
         return {"ok": True}
 
     @r.get("/search")
@@ -318,10 +325,15 @@ def build_router(
         try:
             results = await geocode_search(query, limit=capped)
         except GeocodeError as e:
-            raise HTTPException(status_code=502, detail=f"geocode: {e}")
+            raise CodedHTTPException(502, f"geocode: {e}", "geocode.service_down")
         return {"results": results}
 
     return r
+
+
+def _conflict(e: RuntimeError) -> CodedHTTPException:
+    """A refused session action as a 409 carrying the action's incident code."""
+    return CodedHTTPException(409, str(e), getattr(e, "code", "request.invalid"))
 
 
 def _to_dict(s) -> dict:

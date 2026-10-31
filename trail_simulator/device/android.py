@@ -17,11 +17,13 @@ async def _adb(*args: str) -> str:
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as e:
-        raise DeviceUnavailable("adb not found on PATH") from e
+        raise DeviceUnavailable("adb not found on PATH", code="device.adb") from e
     out, err = await proc.communicate()
     if proc.returncode != 0:
         msg = err.decode(errors="replace").strip() or "non-zero exit"
-        raise DeviceUnavailable(f"adb {' '.join(args)} failed: {msg}")
+        raise DeviceUnavailable(
+            f"adb {' '.join(args)} failed: {msg}", code="device.adb"
+        )
     return out.decode(errors="replace")
 
 

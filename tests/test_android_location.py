@@ -120,5 +120,6 @@ async def test_adb_maps_nonzero_exit_to_device_unavailable(monkeypatch):
 
     monkeypatch.setattr(mod.asyncio, "create_subprocess_exec", fake_exec)
     client = AndroidLocationClient("SERIAL")
-    with pytest.raises(DeviceUnavailable):
+    with pytest.raises(DeviceUnavailable) as ei:
         await client._adb("get-state")
+    assert ei.value.code == "device.adb"

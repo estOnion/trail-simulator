@@ -22,6 +22,14 @@ from .store import Store
 log = logging.getLogger(__name__)
 
 
+class SessionError(RuntimeError):
+    """A refused session action. ``code`` is the incident code (ADR-0048)."""
+
+    def __init__(self, message: str, code: str = "request.invalid") -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class SessionState(str, Enum):
     idle = "idle"
     starting = "starting"
@@ -49,6 +57,8 @@ class StatusSnapshot:
     steps_sent: int
     step_companions: list[dict]
     following_leader: str | None = None
+    # {id, code, remedy} of the incident behind last_error, else None (API-11).
+    last_incident: dict | None = None
 
 
 # Listeners get snapshots pushed to them (WebSocket fan-out lives in api/ws.py).
@@ -72,6 +82,7 @@ class SessionController:
         self._progress_m: float = 0.0
         self._total_m: float = 0.0
         self._last_error: str | None = None
+        self._last_incident: dict | None = None
         self._listeners: list[Listener] = []
         self._follow_source: "SessionController | None" = None
         self._follow_listener: Listener | None = None
@@ -153,7 +164,16 @@ class SessionController:
             steps_sent=self._steps_sent,
             step_companions=_step_broadcaster.snapshot(self._udid),
             following_leader=self._following_leader,
+            last_incident=self._last_incident if self._last_error else None,
         )
+
+    async def note_incident(self, ref: dict | None) -> None:
+        """Point the snapshot at the incident recorded for the current
+        ``last_error`` (the cooldown refusal is recorded by the REST layer)."""
+        if self._last_error is None:
+            return
+        self._last_incident = ref
+        await self._broadcast()
 
     async def start(
         self,
@@ -172,9 +192,9 @@ class SessionController:
                 SessionState.paused,
                 SessionState.reconnecting,
             ):
-                raise RuntimeError("session already active")
+                raise SessionError("session already active", "session.already_active")
             if not destinations:
-                raise RuntimeError("destinations must not be empty")
+                raise SessionError("destinations must not be empty", "request.invalid")
 
             # Cancel any pending auto-reconnect so it doesn't start a duplicate session.
             if self._reconnect_task and not self._reconnect_task.done():
@@ -293,7 +313,7 @@ class SessionController:
         Only valid when settled — the UI must stop an active session first."""
         async with self._lifecycle_lock:
             if self._state not in (SessionState.idle, SessionState.error):
-                raise RuntimeError("stop the session before resetting")
+                raise SessionError("stop the session before resetting", "session.reset_while_active")
             try:
                 await self._device.clear()
             except Exception:  # noqa: BLE001
@@ -315,7 +335,7 @@ class SessionController:
         """Mirror `leader`'s live position onto this controller's device until
         unfollow(). Stops any session this controller is currently running."""
         if leader is self:
-            raise RuntimeError("cannot follow self")
+            raise SessionError("cannot follow self", "follow.self")
         # Tear down any existing follow before registering a new listener,
         # so re-following (or switching leaders) never orphans a listener.
         if self._follow_source is not None and self._follow_listener is not None:
@@ -369,11 +389,11 @@ class SessionController:
         becomes the upcoming queue. If destinations[0] equals the existing
         current-leg target, no re-fetch — only the queue and loop flag mutate."""
         if self._state not in (SessionState.running, SessionState.paused):
-            raise RuntimeError("no active session to update")
+            raise SessionError("no active session to update", "session.not_active")
         if self._current is None:
-            raise RuntimeError("no current position")
+            raise SessionError("no current position", "session.not_active")
         if not destinations:
-            raise RuntimeError("destinations must not be empty")
+            raise SessionError("destinations must not be empty", "request.invalid")
 
         async with self._retarget_lock:
             if loop is not None:
