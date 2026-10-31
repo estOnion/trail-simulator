@@ -7,14 +7,20 @@ from dataclasses import asdict
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
 from ..device.registry import DeviceRegistry
-from .diagnostics import explain_unroutable as _reject_reason
+from ..observatory import catalogue
+from ..observatory.journal import Journal
+from .diagnostics import diagnose_unroutable, explain_unroutable as _reject_reason
 from ..session.controller import StatusSnapshot
 from ..session.manager import SessionManager
 
 log = logging.getLogger(__name__)
 
 
-def build_ws_router(manager: SessionManager, registry: DeviceRegistry) -> APIRouter:
+def build_ws_router(
+    manager: SessionManager,
+    registry: DeviceRegistry,
+    journal: Journal | None = None,
+) -> APIRouter:
     r = APIRouter()
 
     @r.websocket("/ws/live")
@@ -30,8 +36,21 @@ def build_ws_router(manager: SessionManager, registry: DeviceRegistry) -> APIRou
             if udid is None:
                 udid = registry.default_udid()
         if udid is None:
-            reason = _reject_reason(registry, client, device)
+            why = diagnose_unroutable(registry, client, device)
+            reason = why.text
             log.warning("rejecting /ws/live: %s", reason)
+            if journal is not None:
+                journal.record(
+                    catalogue.REJECTION, why.code, reason,
+                    client_id=client,
+                    request={
+                        "method": "WEBSOCKET",
+                        "path": ws.url.path,
+                        "query": ws.url.query,
+                        "status": status.WS_1008_POLICY_VIOLATION,
+                        "detail": reason,
+                    },
+                )
             await ws.close(
                 code=status.WS_1008_POLICY_VIOLATION,
                 # close-frame reasons are capped at 123 bytes

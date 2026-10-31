@@ -20,6 +20,9 @@ from fastapi.staticfiles import StaticFiles
 from .api.rest import build_router
 from .api.ws import build_ws_router
 from .api.ws_steps import build_ws_steps_router
+from .observatory.handlers import install as install_handlers
+from .observatory.identity import Identity
+from .observatory.journal import Journal
 from .config import FRONTEND_DIR, SETTINGS
 from .device.android import android_sdk_int, list_android_devices
 from .device.android_location import AndroidLocationClient
@@ -114,7 +117,19 @@ def _free_stale_port(port: int) -> None:
                 pass
 
 
-def build_app(manager: SessionManager, registry: DeviceRegistry, discover=None) -> FastAPI:
+def build_app(
+    manager: SessionManager,
+    registry: DeviceRegistry,
+    discover=None,
+    journal: Journal | None = None,
+) -> FastAPI:
+    # Default to a journal beside the session store, so an app built over a
+    # temporary store never touches the real database.
+    if journal is None:
+        journal = Journal(manager.store.path)
+    identity = Identity(registry, manager)
+    manager.attach_observatory(journal, identity)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
@@ -127,8 +142,9 @@ def build_app(manager: SessionManager, registry: DeviceRegistry, discover=None) 
 
     app = FastAPI(title="Trail Simulator", lifespan=lifespan)
     app.include_router(build_router(manager, registry, discover=discover), prefix="/api")
-    app.include_router(build_ws_router(manager, registry))
+    app.include_router(build_ws_router(manager, registry, journal=journal))
     app.include_router(build_ws_steps_router())
+    install_handlers(app, journal, identity)
 
     if FRONTEND_DIR.exists():
         app.mount(
