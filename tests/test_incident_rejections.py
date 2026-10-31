@@ -85,6 +85,7 @@ def test_cooldown_refusal_records_one_rejection_referenced_by_body_and_snapshot(
 
     client.post("/api/reset", headers=HEADERS)
     assert client.get("/api/status", headers=HEADERS).json()["last_incident"] is None
+    assert journal.get(ref["id"]) is not None   # the journal outlives a reset (OBS-09)
 
 
 def test_rejection_stores_request_response_and_client(tmp_path):
