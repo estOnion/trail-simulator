@@ -5,12 +5,14 @@ import logging
 import math
 import random
 import time
+import traceback as _traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Awaitable, Callable
 
 from ..config import SETTINGS
+from ..observatory import catalogue
 from ..device.location import DeviceUnavailable, LocationClient
 from ..routing.interpolator import GaitParams, Waypoint, interpolate_route
 from ..routing.osrm import RouteError, fetch_walking_route
@@ -66,10 +68,20 @@ Listener = Callable[[StatusSnapshot], Awaitable[None]]
 
 
 class SessionController:
-    def __init__(self, device: LocationClient, store: Store, udid: str | None = None):
+    def __init__(
+        self,
+        device: LocationClient,
+        store: Store,
+        udid: str | None = None,
+        journal=None,
+        identity=None,
+    ):
         self._device = device
         self._store = store
         self._udid = udid
+        # Observatory (OBS-01, OBS-03): optional so the controller works bare.
+        self._journal = journal
+        self._identity = identity
         self._state = SessionState.idle
         self._task: asyncio.Task | None = None
         self._pause_event = asyncio.Event()
@@ -167,6 +179,53 @@ class SessionController:
             last_incident=self._last_incident if self._last_error else None,
         )
 
+    def attach_observatory(self, journal, identity) -> None:
+        self._journal = journal
+        self._identity = identity
+
+    def _record(
+        self,
+        kind: str,
+        code: str,
+        message: str,
+        *,
+        exc: BaseException | None = None,
+        with_log: bool = False,
+    ) -> dict | None:
+        """Record an incident for this session; never raises (OBS-08)."""
+        if self._journal is None:
+            return None
+        try:
+            ids = self._identity.for_udid(self._udid) if self._identity else {}
+            ids = {
+                **ids,
+                "device_udid": ids.get("device_udid") or self._udid,
+                "session_id": self._session_id,
+                "session_state": self._state.value,
+            }
+            last = self._store.get_last_fix()
+            context = {
+                "origin": list(self._origin) if self._origin else None,
+                "destinations": [list(d) for d in self._full_destinations],
+                "speed_kmh": self._speed_kmh,
+                "loop": self._loop,
+                "last_fix": list(last) if last else None,
+            }
+            return self._journal.record(
+                kind, code, message,
+                context=context,
+                exception_type=type(exc).__name__ if exc is not None else None,
+                traceback=(
+                    "".join(_traceback.format_exception(type(exc), exc, exc.__traceback__))
+                    if exc is not None else None
+                ),
+                with_log=with_log,
+                **ids,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("could not record incident %s", code)
+            return None
+
     async def note_incident(self, ref: dict | None) -> None:
         """Point the snapshot at the incident recorded for the current
         ``last_error`` (the cooldown refusal is recorded by the REST layer)."""
@@ -226,6 +285,7 @@ class SessionController:
             self._cooldown_until = 0.0  # starting → clear any pending cooldown
             self._state = SessionState.starting
             self._last_error = None
+            self._last_incident = None
             self._origin = (start_lat, start_lon)
             self._full_destinations = list(destinations)
             self._destinations = list(destinations[1:])
@@ -321,6 +381,7 @@ class SessionController:
             self._current = None
             self._current_leg_target = None
             self._last_error = None
+            self._last_incident = None
             self._session_id = None
             self._last_start_params = None
             # Released to real GPS — the last spoofed fix is no longer where the
@@ -576,16 +637,26 @@ class SessionController:
         except RouteError as e:
             self._last_error = f"route: {e}"
             self._state = SessionState.error
+            self._last_incident = self._record(
+                catalogue.FAULT, e.code, self._last_error, with_log=True
+            )
         except (DeviceUnavailable, TimeoutError, OSError) as e:
             # OSError: the tunnel transport died out from under us (e.g.
             # Wi-Fi drop → errno 49) — same recovery path as DeviceUnavailable
             # so auto-resume kicks in once the device is reachable again.
             self._last_error = f"device: {e}"
             self._state = SessionState.error
+            self._last_incident = self._record(
+                catalogue.FAULT, _device_code(e), self._last_error, with_log=True
+            )
         except Exception as e:  # noqa: BLE001
             self._last_error = f"unexpected: {e}"
             self._state = SessionState.error
             log.exception("session loop crashed")
+            self._last_incident = self._record(
+                catalogue.FAULT, catalogue.UNEXPECTED, self._last_error,
+                exc=e, with_log=True,
+            )
         finally:
             # Ensure a clean state — covers CancelledError path where state wasn't set.
             if self._state not in (SessionState.idle, SessionState.error):
@@ -657,6 +728,10 @@ class SessionController:
             log.warning("auto-resume failed: %s", e)
             self._state = SessionState.error
             self._last_error = f"auto-resume failed: {e}"
+            self._last_incident = self._record(
+                catalogue.FAULT, "session.auto_resume_failed", self._last_error,
+                exc=e, with_log=True,
+            )
             await self._broadcast()
 
     async def _tick_leg(
@@ -697,6 +772,11 @@ class SessionController:
                     else f"tick gate: {jump_m:.1f} m jump"
                 )
                 log.warning(self._last_error)
+                self._last_incident = self._record(
+                    catalogue.CAP_TRIP,
+                    "safety.speed_cap" if not ok_speed else "safety.jump_cap",
+                    self._last_error,
+                )
                 prev_lat, prev_lon = wp.lat, wp.lon
                 if self._wp_idx == idx:
                     self._wp_idx = idx + 1
@@ -707,6 +787,9 @@ class SessionController:
             except (DeviceUnavailable, TimeoutError, OSError) as e:
                 self._last_error = f"device: {e}"
                 self._state = SessionState.error
+                self._last_incident = self._record(
+                    catalogue.FAULT, _device_code(e), self._last_error, with_log=True
+                )
                 return (prev_lat, prev_lon)
 
             self._current = (wp.lat, wp.lon)
@@ -743,6 +826,12 @@ class SessionController:
             self._destinations = [self._origin, *self._full_destinations]
             return self._destinations.pop(0)
         return None
+
+
+def _device_code(e: BaseException) -> str:
+    """The incident code for a device failure: the raise site's own, else a
+    dropped connection (bare OSError and TimeoutError land here too)."""
+    return getattr(e, "code", None) or "device.connection_lost"
 
 
 def _polyline_length_m(polyline: list[tuple[float, float]]) -> float:

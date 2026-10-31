@@ -35,6 +35,10 @@ class Store:
         self._conn = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
         self._conn.executescript(SCHEMA)
 
+    @property
+    def path(self) -> Path:
+        return self._path
+
     # ---- last fix (for cooldown) ----
     def get_last_fix(self) -> tuple[float, float, float] | None:
         row = self._conn.execute("SELECT lat, lon, ts FROM last_fix WHERE id = 1").fetchone()
