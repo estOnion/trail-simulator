@@ -355,8 +355,8 @@ Cooldown state persists in `trail-simulator.db` across restarts.
 When something goes wrong, the backend records it in a journal of **incidents**
 in `trail-simulator.db`, so you can read what happened after the app has stopped
 showing it. An incident is a fault (a session that ended in the error state), a
-rejection (any `/api/` request answered `400` or above, or a refused
-`/ws/live`), a cap trip (the speed or jump cap skipped a position), or a client
+rejection (any `/api/` request answered `400` or above, except requests to
+the incident endpoints themselves, or a refused `/ws/live`), a cap trip (the speed or jump cap skipped a position), or a client
 failure reported by a client. Each has a code (such as `route.no_route`,
 `device.tunnel_down`, `safety.cooldown`) and a one-line remedy; faults and
 unexpected `500`s also carry the backend's last log lines.
