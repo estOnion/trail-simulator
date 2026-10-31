@@ -10,7 +10,9 @@ body.picking #map { cursor: crosshair; }
   overflow-y: auto;
   background: #fafafa;
 }
-#panel h1 { font-size: 20px; margin: 0 0 12px; }
+#panel h1 { font-size: 20px; margin: 0 0 4px; }
+#panel .obs-link { margin: 0 0 12px; font-size: 12px; }
+.err a { margin-left: 4px; }
 #panel section {
   margin-bottom: 16px;
   padding-bottom: 16px;

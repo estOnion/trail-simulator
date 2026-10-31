@@ -24,6 +24,7 @@ from .observatory import lifecycle as observatory_lifecycle
 from .observatory.handlers import install as install_handlers
 from .observatory.identity import Identity
 from .observatory.journal import Journal
+from .observatory.logbuffer import LogRingBuffer
 from .observatory.router import build_incident_router
 from .config import FRONTEND_DIR, SETTINGS
 from .device.android import android_sdk_int, list_android_devices
@@ -161,6 +162,10 @@ def build_app(
         @app.get("/")
         async def index():
             return FileResponse(FRONTEND_DIR / "index.html")
+
+        @app.get("/observatory")
+        async def observatory():
+            return FileResponse(FRONTEND_DIR / "observatory.html")
 
     return app
 
@@ -368,7 +373,9 @@ def main() -> int:
             devs = await discover_connected()
             return [d for d in devs if not allow or d[0] in allow]
 
-    app = build_app(manager, registry, discover=discover)
+    # Recent log lines for faults (ADR-0046), and the journal beside the store.
+    journal = Journal(store.path, log_buffer=LogRingBuffer().install())
+    app = build_app(manager, registry, discover=discover, journal=journal)
 
     _free_stale_port(args.port)
 

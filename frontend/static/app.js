@@ -578,6 +578,15 @@
     } else {
       el('error').textContent = s.last_error || '';
     }
+    // Link the shown backend error to its incident in the observatory (HST-35).
+    if (s.last_error && s.last_incident && s.state !== 'reconnecting') {
+      const a = document.createElement('a');
+      a.href = `/observatory?incident=${encodeURIComponent(s.last_incident.id)}`;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = `incident #${s.last_incident.id} (${s.last_incident.code})`;
+      el('error').append('\n', a);
+    }
 
     const running = s.state === 'running';
     const paused  = s.state === 'paused';

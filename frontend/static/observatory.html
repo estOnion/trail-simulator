@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Observatory · Trail Simulator</title>
+  <link rel="stylesheet" href="/static/observatory.css" />
+</head>
+<body>
+  <header class="top">
+    <h1>Observatory</h1>
+    <span id="live" class="live" title="The list refreshes about every 5 seconds while this page is visible">live</span>
+    <a class="back" href="/">Control panel</a>
+  </header>
+
+  <main class="layout">
+    <section id="browse" class="browse">
+      <nav id="presets" class="presets" aria-label="Preset filters"></nav>
+
+      <details id="filters" class="filters" open>
+        <summary>Filters</summary>
+        <div class="grid">
+          <label>Time range
+            <select id="f-range">
+              <option value="1h">Last hour</option>
+              <option value="24h">Last 24 hours</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="">All time</option>
+            </select>
+          </label>
+          <fieldset class="kinds"><legend>Kind</legend>
+            <label><input type="checkbox" name="kind" value="fault" /> fault</label>
+            <label><input type="checkbox" name="kind" value="rejection" /> rejection</label>
+            <label><input type="checkbox" name="kind" value="cap_trip" /> cap trip</label>
+            <label><input type="checkbox" name="kind" value="client_failure" /> client failure</label>
+          </fieldset>
+          <label>Code <input id="f-code" type="text" list="code-list" placeholder="device.*, safety.cooldown" autocomplete="off" /></label>
+          <label>Client <input id="f-client" type="text" placeholder="client ID" autocomplete="off" /></label>
+          <label>Device <input id="f-device" type="text" list="device-list" placeholder="name or ID" autocomplete="off" /></label>
+          <label>Session <input id="f-session" type="number" min="1" inputmode="numeric" placeholder="session ID" /></label>
+          <label class="wide">Message contains <input id="f-q" type="search" placeholder="text" autocomplete="off" /></label>
+        </div>
+        <div class="row">
+          <button id="clear" type="button">Clear filters</button>
+        </div>
+        <datalist id="code-list"></datalist>
+        <datalist id="device-list"></datalist>
+      </details>
+
+      <div class="bar">
+        <div class="views" role="tablist" aria-label="View">
+          <button id="view-list" type="button" role="tab">List</button>
+          <button id="view-grouped" type="button" role="tab">Grouped by code</button>
+        </div>
+        <span id="status" class="status" aria-live="polite"></span>
+      </div>
+
+      <div id="list" class="list" aria-label="Incidents"></div>
+      <div class="row"><button id="more" type="button" hidden>Load more</button></div>
+    </section>
+
+    <aside id="detail" class="detail" hidden aria-label="Incident detail"></aside>
+  </main>
+
+  <script src="/static/observatory.js"></script>
+</body>
+</html>
