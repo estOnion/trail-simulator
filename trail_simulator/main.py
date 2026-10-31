@@ -24,6 +24,7 @@ from .observatory import lifecycle as observatory_lifecycle
 from .observatory.handlers import install as install_handlers
 from .observatory.identity import Identity
 from .observatory.journal import Journal
+from .observatory.router import build_incident_router
 from .config import FRONTEND_DIR, SETTINGS
 from .device.android import android_sdk_int, list_android_devices
 from .device.android_location import AndroidLocationClient
@@ -145,6 +146,7 @@ def build_app(
 
     app = FastAPI(title="Trail Simulator", lifespan=lifespan)
     app.include_router(build_router(manager, registry, discover=discover), prefix="/api")
+    app.include_router(build_incident_router(journal, identity, registry), prefix="/api")
     app.include_router(build_ws_router(manager, registry, journal=journal))
     app.include_router(build_ws_steps_router())
     install_handlers(app, journal, identity)
