@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from .api.rest import build_router
 from .api.ws import build_ws_router
 from .api.ws_steps import build_ws_steps_router
+from .observatory import lifecycle as observatory_lifecycle
 from .observatory.handlers import install as install_handlers
 from .observatory.identity import Identity
 from .observatory.journal import Journal
@@ -132,6 +133,7 @@ def build_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        tasks = observatory_lifecycle.start(journal)
         try:
             yield
         finally:
@@ -139,6 +141,7 @@ def build_app(
                 await manager.stop_all()
             except Exception:
                 pass
+            await observatory_lifecycle.stop(journal, tasks)
 
     app = FastAPI(title="Trail Simulator", lifespan=lifespan)
     app.include_router(build_router(manager, registry, discover=discover), prefix="/api")
