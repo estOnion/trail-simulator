@@ -20,6 +20,18 @@ Failures are `404` when the name or UUID isn't registered, and `409` with
 `Multiple devices registered; send X-Device-Name header.` when the request is
 ambiguous.
 
+## Error bodies
+
+Every failed REST request under `/api/`, whatever its status, answers JSON
+`{detail, incident}`. `detail` is a string, except the cooldown `429` (an object)
+and request-validation `422` (a list). `incident` is `{id, code, remedy}` for the
+incident the backend recorded for that answer (`remedy` is null for code
+`unexpected`), or null if recording failed or the path is an incident endpoint.
+An unmapped failure answers `500` with `detail` "unexpected server error:
+<type>: <message>" and an `unexpected` incident. A `/ws/live` refusal still
+gives its cause only in the close reason, but it is recorded and visible at
+`/observatory`.
+
 ## Session control
 
 | Method | Path | Request | Success | Failure |
@@ -52,6 +64,23 @@ so the next start isn't measured against a stale spoof position.
 the previous binding — it's an operator escape hatch, not something the phone
 app calls.
 
+## Incidents
+
+| Method | Path | Request | Success | Failure |
+|---|---|---|---|---|
+| POST | `/api/incidents` | `{sent_at, reports:[{report_id, code, message, started_at, ended_at, attempts, app_build, os_version}]}` (ISO 8601 with offset, `report_id` a UUID, at most 200) | `{accepted:[{report_id, id}], duplicates:[report_id]}` | 422 malformed, over 200, or a code that is not a client-failure code |
+| GET | `/api/incidents` | filters `kind`, `code` (comma-separated, `device.*` matches a prefix), `client`, `device`, `session`, `since`, `until`, `q`, `limit` (default 100, max 500), `before` | `{incidents:[{id, kind, code, remedy, source, message, first_seen, last_seen, count, client_id, device_name, session_id}], next_before}` | 422 |
+| GET | `/api/incidents/{id}` | — | the full record; client failures add `host_during_outage` (`up`, `down`, `partly`) | 404 |
+| GET | `/api/incidents/summary` | the list filters except `limit`/`before` | `{codes:[{code, remedy, incidents, occurrences, last_seen}]}` | 422 |
+| GET | `/api/incident-codes` | — | `{codes:[{code, kinds, remedy}]}` | — |
+
+Client failure codes: `client.unreachable`, `client.live_dropped`,
+`client.timeout`, `client.undecodable`. Reports are idempotent by `report_id`;
+the backend corrects the report's times for the difference between `sent_at` and
+its own clock. The reporting endpoint takes `X-Client-Id` when sent but never
+refuses a report for lack of a device. The other incident endpoints ignore the
+addressing headers. The human-readable view is at `/observatory`.
+
 ## WebSockets
 
 `/ws/live?client=<uuid>` (or `?device=<name>`) pushes a `StatusSnapshot` on
@@ -77,6 +106,7 @@ within the hello timeout the connection still registers under a generated label.
   "progress_m": 0.0,
   "total_m": 0.0,
   "last_error": "..."|null,
+  "last_incident": {"id":0,"code":"...","remedy":"..."|null}|null,
   "cooldown_remaining_s": 0.0,
   "steps_sent": 0,
   "step_companions": [
@@ -86,7 +116,11 @@ within the hello timeout the connection still registers under a generated label.
 }
 ```
 
+`last_incident` references the incident behind `last_error` (null when
+`last_error` is null or the incident could not be recorded). The Controller app
+ignores it until change 0004.
+
 `cooldown_remaining_s` counts down against wall-clock while a start is blocked,
 and reads 0 once it expires or a start overrides it.
 
-Source: `trail_simulator/api/rest.py`, `ws.py`, `ws_steps.py`, `geocode.py`.
+Source: `trail_simulator/api/rest.py`, `ws.py`, `ws_steps.py`, `geocode.py`, `observatory/router.py`.

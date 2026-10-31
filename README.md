@@ -350,6 +350,36 @@ Three independent gates reject unsafe commands before they reach the device:
 
 Cooldown state persists in `trail-simulator.db` across restarts.
 
+## Observatory
+
+When something goes wrong, the backend records it in a journal of **incidents**
+in `trail-simulator.db`, so you can read what happened after the app has stopped
+showing it. An incident is a fault (a session that ended in the error state), a
+rejection (any `/api/` request answered `400` or above, or a refused
+`/ws/live`), a cap trip (the speed or jump cap skipped a position), or a client
+failure reported by a client. Each has a code (such as `route.no_route`,
+`device.tunnel_down`, `safety.cooldown`) and a one-line remedy; faults and
+unexpected `500`s also carry the backend's last log lines.
+
+Open **`/observatory`** on the backend's port (the web UI links to it, and a
+backend error shown in the web UI links to its incident). It has preset filters,
+filters for time, kind, code (`device.*` matches a prefix), client, device,
+session and message text, a view grouped by code, and refreshes itself every
+few seconds. The filter lives in the address, so a view can be bookmarked.
+
+Status snapshots and rejected-request bodies carry a reference to the incident
+(`last_incident`, `incident`: `{id, code, remedy}`). Incidents are kept for 30
+days. The host also records when the backend was running, so a client's outage
+can be explained as "host was down or asleep" versus "host was up".
+
+There is no authentication: anyone who can reach the port can read the
+incident history, coordinates included. For ad-hoc SQL over the same file, run
+Datasette on demand (it is not a dependency):
+
+```bash
+uvx datasette trail-simulator.db
+```
+
 ## Tests
 
 ```bash
