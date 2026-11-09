@@ -228,6 +228,20 @@ def test_catalogue_endpoint_lists_every_code(rig):
     assert all(c["remedy"] for code, c in by_code.items() if code != "unexpected")
 
 
+def test_service_down_remedy_mentions_retry_and_the_clients_link(rig):
+    client, _, _ = rig
+
+    by_code = {c["code"]: c for c in client.get("/api/incident-codes").json()["codes"]}
+
+    remedy = by_code["route.service_down"]["remedy"]
+    assert remedy == catalogue.remedy_for("route.service_down")
+    assert remedy == (
+        "The host could not reach the public OSRM router, even after a retry; "
+        "your device's connection to the host is fine. Check the host's internet "
+        "connection, then walk again."
+    )
+
+
 def test_endpoints_ignore_the_addressing_headers(rig):
     client, journal, clock = rig
     _seed(journal, clock)

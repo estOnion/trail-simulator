@@ -37,7 +37,8 @@ _ENTRIES = [
        "The router rejected these points; check the pins are valid, reset them "
        "and try again."),
     _e("route.service_down", (FAULT, REJECTION),
-       "The host cannot reach the public OSRM router; check the host's internet "
+       "The host could not reach the public OSRM router, even after a retry; "
+       "your device's connection to the host is fine. Check the host's internet "
        "connection, then walk again."),
     _e("device.tunnel_down", (FAULT,),
        "Start the tunnel on the host: `sudo pymobiledevice3 remote tunneld`. "

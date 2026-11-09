@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import functools
 import logging
 
+import httpx
 import pytest
 
 import trail_simulator.session.controller as controller_mod
 from trail_simulator.device.injector import DeviceUnavailable
 from trail_simulator.observatory.journal import Journal
 from trail_simulator.observatory.logbuffer import LogRingBuffer
+from trail_simulator.routing import osrm
 from trail_simulator.routing.osrm import RouteError
 from trail_simulator.session.controller import SessionController, SessionState
 from trail_simulator.session.store import Store
@@ -115,6 +118,39 @@ async def test_no_route_records_one_fault_with_context(rig, monkeypatch):
         "id": row["id"], "code": "route.no_route", "remedy": row["remedy"],
     }
     assert snap.last_error == row["message"]
+
+
+@pytest.mark.asyncio
+async def test_router_failing_twice_records_one_service_down_fault(rig, monkeypatch):
+    """RTE-13: both attempts fail, the session sees one RouteError, one incident."""
+    make, journal = rig
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        raise httpx.ReadTimeout("")
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        osrm.httpx, "AsyncClient",
+        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+    )
+    monkeypatch.setattr(
+        controller_mod, "fetch_walking_route",
+        functools.partial(osrm.fetch_walking_route, base="http://osrm", retry_delay_s=0),
+    )
+    c = make(FakeDevice())
+
+    await c.start(0.0, 0.0, [(0.0, 0.001)], speed_kmh=4.0, skip_cooldown=True)
+    await _run_to_end(c)
+
+    assert len(requests) == 2
+    assert c._state == SessionState.error
+    row = _only(journal, "fault")
+    assert row["code"] == "route.service_down"
+    assert "timed out after 15 s" in row["message"] and "tried twice" in row["message"]
+    assert c.status().last_incident["code"] == "route.service_down"
+    assert c.status().last_incident["id"] == row["id"]
 
 
 @pytest.mark.asyncio
