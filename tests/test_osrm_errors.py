@@ -121,6 +121,18 @@ async def test_two_connect_errors_send_two_requests_and_say_so(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_non_transport_http_error_is_not_retried_and_says_tried_once(monkeypatch):
+    handler = _counting_handler([httpx.DecodingError("bad gzip")])
+    _mock_client(monkeypatch, handler)
+    with pytest.raises(RouteError) as ei:
+        await fetch_walking_route(0, 0, 1, 1, base="http://osrm", retry_delay_s=0)
+    assert len(handler.calls) == 1
+    assert ei.value.code == "route.service_down"
+    assert "tried once" in str(ei.value)
+    assert "tried twice" not in str(ei.value)
+
+
+@pytest.mark.asyncio
 async def test_timeout_with_empty_text_is_named_in_words(monkeypatch):
     handler = _counting_handler([httpx.ReadTimeout("")])
     _mock_client(monkeypatch, handler)

@@ -7,6 +7,7 @@ import functools
 import logging
 
 import httpx
+import polyline as polyline_lib
 import pytest
 
 import trail_simulator.session.controller as controller_mod
@@ -151,6 +152,48 @@ async def test_router_failing_twice_records_one_service_down_fault(rig, monkeypa
     assert "timed out after 15 s" in row["message"] and "tried twice" in row["message"]
     assert c.status().last_incident["code"] == "route.service_down"
     assert c.status().last_incident["id"] == row["id"]
+
+
+_OK_BODY = {
+    "code": "Ok",
+    "routes": [{"geometry": polyline_lib.encode([(0.0, 0.0), (0.0, 0.001), (0.0, 0.002)])}],
+}
+
+
+@pytest.mark.asyncio
+async def test_router_blip_walks_and_records_no_incident(rig, monkeypatch):
+    """RTE-13 blip: first request times out, second answers Ok; the walk starts."""
+    make, journal = rig
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx.ReadTimeout("")
+        return httpx.Response(200, json=_OK_BODY)
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        osrm.httpx, "AsyncClient",
+        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+    )
+    monkeypatch.setattr(
+        controller_mod, "fetch_walking_route",
+        functools.partial(osrm.fetch_walking_route, base="http://osrm", retry_delay_s=0),
+    )
+    c = make(FakeDevice())
+
+    await c.start(0.0, 0.0, [(0.0, 0.001)], speed_kmh=4.0, skip_cooldown=True)
+    for _ in range(100):
+        if c._state == SessionState.running:
+            break
+        await asyncio.sleep(0.02)
+
+    assert c._state == SessionState.running
+    assert len(requests) == 2
+    assert journal.list()[0] == []
+    assert c.status().last_incident is None
+    await c.stop()
 
 
 @pytest.mark.asyncio
