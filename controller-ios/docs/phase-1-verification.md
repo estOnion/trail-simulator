@@ -55,6 +55,9 @@ Fill in **Result** (✅ / ❌) and **Notes** as you go.
 | 3.4 | Background the app, then foreground | WS reconnects; pill returns to live state | | |
 | 3.5 | Stop the backend mid-session | App surfaces transport/connection error gracefully | | |
 | 3.6 | Leave the session in `error` (for example Walk between two pins OSRM cannot route), then place a fresh Start and End pin | Pill shows the error; **Walk**, **Stop** and **Reset GPS** are all enabled; tapping **Walk** starts a new walk and the old error clears. Repeat, but tap **Reset GPS** instead: pill → `idle` with no error and is no longer tappable | | |
+| 3.7 | Make the router fail: start the backend with an unreachable `osrm_base` (for example `http://127.0.0.1:9`), place two pins, tap **Walk**, then tap the red `error` pill | Alert titled "Session error" shows the route message (naming the reason and saying it tried twice), then a separate paragraph with the remedy, and **Try again**, **Copy**, **OK** | | |
+| 3.8 | In the same alert tap **Copy**, paste somewhere, then reopen the alert and tap **Try again** | The pasted text is the message only, without the remedy. **Try again** sends the same start as **Walk** (button shows "Working…", then the error returns while the router is still unreachable). If the router has recovered by the time you tap (for example a real timeout that cleared), the walk starts and the error clears | | |
+| 3.9 | Leave the session in `error` from NoRoute (3.6), then tap the pill | Alert shows the message and the remedy about moving the pins; there is no **Try again** | | |
 
 ## 4. Step companions (optional)
 

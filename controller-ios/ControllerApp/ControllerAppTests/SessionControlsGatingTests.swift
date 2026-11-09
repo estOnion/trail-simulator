@@ -32,6 +32,44 @@ final class SessionControlsGatingTests: XCTestCase {
         }
     }
 
+    // MARK: Try again (IOS-14)
+
+    func testTryAgainOffersOnlyForRouterFailureInErrorWithPins() {
+        XCTAssertTrue(SessionState.error.showsTryAgain(
+            incidentCode: "route.service_down", pinStage: .ready, inFlight: false, following: false))
+    }
+
+    func testTryAgainNotForOtherIncidentCodes() {
+        for code in ["route.no_route", "route.rejected", "device.tunnel_down", "unexpected", nil] as [String?] {
+            XCTAssertFalse(SessionState.error.showsTryAgain(
+                incidentCode: code, pinStage: .ready, inFlight: false, following: false), "code \(code ?? "nil")")
+        }
+    }
+
+    func testTryAgainNotOutsideErrorState() {
+        for state in allStates where state != .error {
+            XCTAssertFalse(state.showsTryAgain(
+                incidentCode: "route.service_down", pinStage: .ready, inFlight: false, following: false), "\(state)")
+        }
+    }
+
+    func testTryAgainNeedsOriginAndDestination() {
+        for stage in [SessionStore.PinStage.origin, .destination] {
+            XCTAssertFalse(SessionState.error.showsTryAgain(
+                incidentCode: "route.service_down", pinStage: stage, inFlight: false, following: false), "\(stage)")
+        }
+    }
+
+    func testTryAgainNotWhileRequestInFlight() {
+        XCTAssertFalse(SessionState.error.showsTryAgain(
+            incidentCode: "route.service_down", pinStage: .ready, inFlight: true, following: false))
+    }
+
+    func testTryAgainNotWhileFollowing() {
+        XCTAssertFalse(SessionState.error.showsTryAgain(
+            incidentCode: "route.service_down", pinStage: .ready, inFlight: false, following: true))
+    }
+
     // MARK: Pause / Resume / Stop (IOS-10)
 
     func testPauseOnlyWhileRunning() {

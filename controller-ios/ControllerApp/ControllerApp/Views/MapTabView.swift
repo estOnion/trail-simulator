@@ -3,7 +3,13 @@ import SwiftUI
 struct MapTabView: View {
     @EnvironmentObject var store: SessionStore
     let client: BackendClient
+    @StateObject private var actions: SessionActions
     @State private var showFollow = false
+
+    init(client: BackendClient) {
+        self.client = client
+        _actions = StateObject(wrappedValue: SessionActions(client: client))
+    }
 
     private var isFollowing: Bool {
         store.watchingLeaderId != nil || store.state == .following
@@ -36,7 +42,7 @@ struct MapTabView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 VStack(spacing: 10) {
-                    SessionControls(client: client)
+                    SessionControls(actions: actions)
                         .disabled(isFollowing)
                     StepCompanionsPanel()
                 }
@@ -47,7 +53,18 @@ struct MapTabView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    MapStatePill(state: store.state, detail: store.latest?.lastError)
+                    MapStatePill(
+                        state: store.state,
+                        detail: store.latest?.lastError,
+                        remedy: store.latest?.lastIncident?.remedy,
+                        offersTryAgain: store.state.showsTryAgain(
+                            incidentCode: store.latest?.lastIncident?.code,
+                            pinStage: store.pinSelectionStage,
+                            inFlight: actions.inFlight,
+                            following: isFollowing),
+                        tryAgain: {
+                            Task { await actions.startWalk(store: store, skipCooldown: false) }
+                        })
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showFollow = true } label: {
@@ -76,6 +93,13 @@ private struct MapStatePill: View {
     /// becomes tappable and shows the full message in an alert, since the
     /// toolbar is too narrow to render it inline.
     let detail: String?
+    /// The catalogue remedy for the incident behind `detail` (IOS-32), shown
+    /// as its own paragraph. Never copied: Copy takes the message only.
+    let remedy: String?
+    /// Whether the alert offers "Try again" (`SessionState.showsTryAgain`).
+    let offersTryAgain: Bool
+    /// Sends the same start as Walk.
+    let tryAgain: () -> Void
     @State private var showDetail = false
 
     var body: some View {
@@ -89,14 +113,23 @@ private struct MapStatePill: View {
             .buttonStyle(.plain)
             .foregroundStyle(color)
             .alert("Session \(state.rawValue)", isPresented: $showDetail) {
+                if offersTryAgain {
+                    Button("Try again") { tryAgain() }
+                }
                 Button("Copy") { UIPasteboard.general.string = detail }
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(detail)
+                Text(alertText(message: detail))
             }
         } else {
             label
         }
+    }
+
+    /// The message, then the remedy as a separate paragraph when there is one.
+    private func alertText(message: String) -> String {
+        guard let remedy, !remedy.isEmpty else { return message }
+        return message + "\n\n" + remedy
     }
 
     private var label: some View {

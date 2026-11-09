@@ -20,6 +20,17 @@ extension SessionState {
         pinStage == .ready && (self == .idle || self == .error) && !inFlight
     }
 
+    /// "Try again" in the error alert (IOS-14): only for a router failure
+    /// (decided from the incident code, never the message text), and only
+    /// when Walk itself would be enabled and the app is not following.
+    func showsTryAgain(
+        incidentCode: String?, pinStage: SessionStore.PinStage,
+        inFlight: Bool, following: Bool
+    ) -> Bool {
+        incidentCode == "route.service_down" && self == .error && !following
+            && canStartWalk(pinStage: pinStage, inFlight: inFlight)
+    }
+
     var showsPause: Bool { self == .running }
 
     var showsResume: Bool { self == .paused }

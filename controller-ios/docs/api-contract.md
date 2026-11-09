@@ -118,7 +118,10 @@ within the hello timeout the connection still registers under a generated label.
 
 `last_incident` references the incident behind `last_error` (null when
 `last_error` is null or the incident could not be recorded). The Controller app
-ignores it until change 0004.
+reads it (`id` integer, `code`, and `remedy`, which may be null) to show the
+remedy in the state pill's error alert and to offer "Try again" for
+`route.service_down`. A missing or null `last_incident` is treated as none, so
+the app still works against a backend that predates the observatory.
 
 `cooldown_remaining_s` counts down against wall-clock while a start is blocked,
 and reads 0 once it expires or a start overrides it.

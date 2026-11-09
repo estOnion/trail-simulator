@@ -2,11 +2,11 @@ import SwiftUI
 import CoreLocation
 
 struct SessionControls: View {
-    let client: BackendClient
+    @ObservedObject var actions: SessionActions
     @EnvironmentObject var store: SessionStore
-    @State private var inFlight: Bool = false
-    @State private var cooldown: CooldownDetail? = nil
-    @State private var errorMessage: String? = nil
+
+    private var client: BackendClient { actions.client }
+    private var inFlight: Bool { actions.inFlight }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -23,23 +23,23 @@ struct SessionControls: View {
             HStack(spacing: 8) {
                 primaryButton
                 if store.state.showsPause {
-                    Button("Pause") { Task { await action { try await client.pause() } } }
+                    Button("Pause") { Task { await actions.perform { try await client.pause() } } }
                         .buttonStyle(.bordered)
                 }
                 if store.state.showsResume {
-                    Button("Resume") { Task { await action { try await client.resume() } } }
+                    Button("Resume") { Task { await actions.perform { try await client.resume() } } }
                         .buttonStyle(.bordered)
                 }
                 if store.state.showsStop {
                     Button("Stop", role: .destructive) {
-                        Task { await action { try await client.stop() } }
+                        Task { await actions.perform { try await client.stop() } }
                     }
                     .buttonStyle(.bordered)
                 }
                 if store.state.showsResetGPS(hasPosition: store.currentPosition != nil) {
                     Button("Reset GPS", role: .destructive) {
                         Task {
-                            await action { try await client.reset() }
+                            await actions.perform { try await client.reset() }
                             store.clearBreadcrumb()
                         }
                     }
@@ -47,18 +47,18 @@ struct SessionControls: View {
                 }
             }
 
-            if let err = errorMessage {
+            if let err = actions.errorMessage {
                 Text(err).font(.caption).foregroundStyle(.red)
             }
         }
-        .alert("Cooldown active", isPresented: Binding(get: { cooldown != nil }, set: { if !$0 { cooldown = nil } })) {
-            Button("OK", role: .cancel) { cooldown = nil }
+        .alert("Cooldown active", isPresented: Binding(get: { actions.cooldown != nil }, set: { if !$0 { actions.cooldown = nil } })) {
+            Button("OK", role: .cancel) { actions.cooldown = nil }
             Button("Skip cooldown") {
-                Task { await startSession(skipCooldown: true) }
-                cooldown = nil
+                Task { await actions.startWalk(store: store, skipCooldown: true) }
+                actions.cooldown = nil
             }
         } message: {
-            if let c = cooldown {
+            if let c = actions.cooldown {
                 Text("Reason: \(c.reason)\nJump: \(String(format: "%.1f", c.jumpKm)) km\nWait: \(Int(c.requiredWaitS)) s")
             }
         }
@@ -68,48 +68,13 @@ struct SessionControls: View {
     private var primaryButton: some View {
         let canStart = store.state.canStartWalk(pinStage: store.pinSelectionStage, inFlight: inFlight)
         Button {
-            Task { await startSession(skipCooldown: false) }
+            Task { await actions.startWalk(store: store, skipCooldown: false) }
         } label: {
             Label(inFlight ? "Working…" : "Walk", systemImage: "figure.walk")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .disabled(!canStart)
-    }
-
-    private func startSession(skipCooldown: Bool) async {
-        guard let o = store.origin, !store.destinations.isEmpty else { return }
-        let dests = store.destinations.map { Destination(lat: $0.latitude, lon: $0.longitude) }
-        store.clearBreadcrumb()
-        await action {
-            let req = SessionStartRequest(
-                startLat: o.latitude, startLon: o.longitude,
-                destinations: dests,
-                speedKmh: store.speedKmh,
-                loop: false,
-                skipCooldown: skipCooldown
-            )
-            _ = try await client.startSession(req)
-        }
-    }
-
-    private func action(_ block: @escaping () async throws -> Void) async {
-        inFlight = true; errorMessage = nil; defer { inFlight = false }
-        do {
-            try await block()
-        } catch BackendError.cooldown(let d) {
-            cooldown = d
-        } catch BackendError.sessionAlreadyActive(let m) {
-            errorMessage = "Session already active: \(m)"
-        } catch BackendError.routing(let m) {
-            errorMessage = "Routing error: \(m)"
-        } catch BackendError.server(let code, let m) {
-            errorMessage = "Server \(code): \(m)"
-        } catch BackendError.transport(let m) {
-            errorMessage = "Network: \(m)"
-        } catch {
-            errorMessage = "\(error)"
-        }
     }
 }
 
