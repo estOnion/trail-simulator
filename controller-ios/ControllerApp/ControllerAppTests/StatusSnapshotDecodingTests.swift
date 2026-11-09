@@ -73,4 +73,49 @@ final class StatusSnapshotDecodingTests: XCTestCase {
         let snap = try decoder.decode(StatusSnapshot.self, from: json)
         XCTAssertEqual(snap.state, .unknown)
     }
+
+    // MARK: Incident reference (IOS-32)
+
+    private func errorSnapshotJSON(incident: String?) -> Data {
+        let extra = incident.map { ", \"last_incident\": \($0)" } ?? ""
+        return """
+        {
+          "state": "error",
+          "session_id": null, "current_lat": null, "current_lon": null,
+          "target_lat": null, "target_lon": null,
+          "speed_kmh": 0.0, "progress_m": 0.0, "total_m": 0.0,
+          "last_error": "route: routing service unreachable",
+          "cooldown_remaining_s": 0.0,
+          "steps_sent": 0, "step_companions": []\(extra)
+        }
+        """.data(using: .utf8)!
+    }
+
+    func testDecodesIncidentReference() throws {
+        let json = errorSnapshotJSON(
+            incident: #"{"id": 7, "code": "route.service_down", "remedy": "Check the host."}"#)
+        let snap = try decoder.decode(StatusSnapshot.self, from: json)
+        XCTAssertEqual(snap.lastIncident?.id, 7)
+        XCTAssertEqual(snap.lastIncident?.code, "route.service_down")
+        XCTAssertEqual(snap.lastIncident?.remedy, "Check the host.")
+    }
+
+    func testMissingIncidentKeyDecodesAsNone() throws {
+        // An older backend does not send last_incident at all.
+        let snap = try decoder.decode(StatusSnapshot.self, from: errorSnapshotJSON(incident: nil))
+        XCTAssertNil(snap.lastIncident)
+        XCTAssertEqual(snap.lastError, "route: routing service unreachable")
+    }
+
+    func testNullIncidentDecodesAsNone() throws {
+        let snap = try decoder.decode(StatusSnapshot.self, from: errorSnapshotJSON(incident: "null"))
+        XCTAssertNil(snap.lastIncident)
+    }
+
+    func testNullRemedyDecodesAsNoRemedy() throws {
+        let json = errorSnapshotJSON(incident: #"{"id": 9, "code": "unexpected", "remedy": null}"#)
+        let snap = try decoder.decode(StatusSnapshot.self, from: json)
+        XCTAssertEqual(snap.lastIncident?.code, "unexpected")
+        XCTAssertNil(snap.lastIncident?.remedy)
+    }
 }

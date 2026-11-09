@@ -10,7 +10,7 @@ final class SessionStoreTests: XCTestCase {
                        currentLat: lat, currentLon: lon,
                        targetLat: nil, targetLon: nil,
                        speedKmh: 0, progressM: 0, totalM: 0,
-                       lastError: nil, cooldownRemainingS: 0,
+                       lastError: nil, lastIncident: nil, cooldownRemainingS: 0,
                        stepsSent: 0, stepCompanions: [])
     }
 

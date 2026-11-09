@@ -1,5 +1,13 @@
 import Foundation
 
+/// The incident that set `last_error` (API-11). `remedy` is absent for
+/// uncatalogued codes.
+struct IncidentRef: Codable, Equatable, Sendable {
+    let id: Int
+    let code: String
+    let remedy: String?
+}
+
 struct StatusSnapshot: Codable, Equatable, Sendable {
     let state: SessionState
     let sessionId: Int?
@@ -11,6 +19,7 @@ struct StatusSnapshot: Codable, Equatable, Sendable {
     let progressM: Double
     let totalM: Double
     let lastError: String?
+    let lastIncident: IncidentRef?
     let cooldownRemainingS: Double
     let stepsSent: Int
     let stepCompanions: [StepCompanionInfo]
@@ -27,6 +36,7 @@ struct StatusSnapshot: Codable, Equatable, Sendable {
         case progressM = "progress_m"
         case totalM = "total_m"
         case lastError = "last_error"
+        case lastIncident = "last_incident"
         case cooldownRemainingS = "cooldown_remaining_s"
         case stepsSent = "steps_sent"
         case stepCompanions = "step_companions"
